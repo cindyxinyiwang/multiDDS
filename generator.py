@@ -73,6 +73,12 @@ class Generator(object):
             self.in_transforms.append(lambda s: ' '.join(map(str, encoder.encode(s))))
             self.out_transforms.append(lambda s: ' '.join(t for t in s.split() if t != '<unk>'))
             self.out_transforms.append(lambda s: encoder.decode(map(int, s.strip().split())))
+        elif getattr(args, 'sentencepiece', False):
+            import sentencepiece as spm
+            sp = spm.SentencePieceProcessor()
+            sp.Load(src_bpe)
+            self.in_transforms.append(lambda s: ' '.join(sp.EncodeAsPieces(s)))
+            self.out_transforms.append(lambda s: data_utils.process_bpe_symbol(s, 'sentencepiece'))
         elif src_bpe is not None:
             bpe_parser = apply_bpe.create_parser()
             bpe_args = bpe_parser.parse_args(['--codes', self.src_bpe])
@@ -139,7 +145,7 @@ class Generator(object):
         return html.unescape(hypo_str)
 
     @classmethod
-    def from_pretrained(cls, parser, *args, model_name_or_path, data_name_or_path, checkpoint_file='model.pt', **kwargs):
+    def from_pretrained(cls, parser, *args, model_name_or_path, data_name_or_path, checkpoint_file='model.pt', extra_task_args=None, **kwargs):
         from fairseq import file_utils
 
         model_path = file_utils.load_archive_file(model_name_or_path)
@@ -149,7 +155,10 @@ class Generator(object):
         task_name = kwargs.get('task', 'translation')
 
         # set data and parse
-        model_args = options.parse_args_and_arch(parser, input_args=[data_path, '--task', task_name])
+        model_args = options.parse_args_and_arch(
+            parser,
+            input_args=[data_path, '--task', task_name] + (extra_task_args or [])
+        )
 
         # override any kwargs passed in
         if kwargs is not None:
@@ -180,7 +189,7 @@ class Generator(object):
         )
 
         src_bpe = None
-        for bpe in ['bpecodes', 'vocab.bpe']:
+        for bpe in ['bpecodes', 'vocab.bpe', 'sentencepiece.bpe.model']:
             path = os.path.join(model_path, bpe)
             if os.path.exists(path):
                 src_bpe = path
