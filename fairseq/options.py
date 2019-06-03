@@ -436,6 +436,8 @@ def add_generation_args(parser):
                        help='sample hypotheses instead of using beam search')
     group.add_argument('--sampling-topk', default=-1, type=int, metavar='PS',
                        help='sample from top K likely next words instead of all words')
+    group.add_argument('--sampling-topp', default=-1, type=int, metavar='PS',
+                       help='sample from words making up the top P probability mass')
     group.add_argument('--temperature', default=1., type=float, metavar='N',
                        help='temperature for generation')
     group.add_argument('--diverse-beam-groups', default=-1, type=int, metavar='N',

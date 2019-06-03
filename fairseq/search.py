@@ -168,9 +168,13 @@ class DiverseBeamSearch(Search):
 
 class Sampling(Search):
 
-    def __init__(self, tgt_dict, sampling_topk=-1):
+    def __init__(self, tgt_dict, sampling_topk=-1, sampling_topp=-1):
         super().__init__(tgt_dict)
         self.sampling_topk = sampling_topk
+        self.sampling_topp = sampling_topp
+
+        assert not (sampling_topk > 0 and sampling_topp > 0)
+        assert sampling_topp <= 1.0
 
     def step(self, step, lprobs, scores):
         super()._init_buffers(lprobs)
@@ -187,7 +191,21 @@ class Sampling(Search):
 
         # only sample from top-k candidates
         if self.sampling_topk > 0:
-            lprobs_nopad, topk_indices = lprobs_nopad.topk(self.sampling_topk)
+            sampling_topk = self.sampling_topk
+        elif self.sampling_topp > 0:
+            assert lprobs_nopad.size(0) == 1, 'only bsz 1 and beam 1 is supported'
+            k = 1000
+            while True:
+                cand_lprobs, _ = lprobs_nopad.topk(k)
+                cand_probs = cand_lprobs.exp()
+                satisfied = (torch.cumsum(cand_probs, -1) >= self.sampling_topp)
+                if satisfied.any():
+                    sampling_topk = satisfied.nonzero()[0, -1].item() + 1
+                    break
+                else:
+                    k *= 2
+        if sampling_topk > 0:
+            lprobs_nopad, topk_indices = lprobs_nopad.topk(sampling_topk)
 
         # sample
         probs_nopad = lprobs_nopad.exp_()
@@ -220,7 +238,7 @@ class Sampling(Search):
         self.scores_buf = self.scores_buf.log_().view(bsz, -1)
 
         # remap indices if using top-k sampling
-        if self.sampling_topk > 0:
+        if sampling_topk > 0:
             self.indices_buf = torch.gather(
                 topk_indices.expand(bsz, beam_size, -1),
                 dim=2,
