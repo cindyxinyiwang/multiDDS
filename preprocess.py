@@ -54,6 +54,7 @@ def main(args):
             threshold=args.thresholdsrc if src else args.thresholdtgt,
             nwords=args.nwordssrc if src else args.nwordstgt,
             padding_factor=args.padding_factor,
+            sde=src and args.sde,
         )
 
     if not args.srcdict and os.path.exists(dict_path(args.source_lang)):

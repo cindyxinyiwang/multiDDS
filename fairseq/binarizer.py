@@ -10,7 +10,6 @@ import os
 
 from fairseq.tokenizer import tokenize_line
 
-
 def safe_readline(f):
     pos = f.tell()
     while True:
@@ -32,6 +31,8 @@ class Binarizer:
         def replaced_consumer(word, idx):
             if idx == dict.unk_index and word != dict.unk_word:
                 replaced.update([word])
+
+        if dict.type == "char": replaced_consumer = None
 
         with open(filename, 'r', encoding='utf-8') as f:
             f.seek(offset)

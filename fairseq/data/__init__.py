@@ -5,7 +5,7 @@
 # the root directory of this source tree. An additional grant of patent rights
 # can be found in the PATENTS file in the same directory.
 
-from .dictionary import Dictionary, TruncatedDictionary
+from .dictionary import Dictionary, TruncatedDictionary, CharNgramDictionary
 from .masked_lm_dictionary import BertDictionary, MaskedLMDictionary
 
 from .fairseq_dataset import FairseqDataset
@@ -39,6 +39,7 @@ __all__ = [
     'ConcatDataset',
     'CountingIterator',
     'Dictionary',
+    'CharNgramDictionary',
     'EpochBatchIterator',
     'FairseqDataset',
     'GroupedIterator',

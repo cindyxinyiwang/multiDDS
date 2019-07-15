@@ -15,3 +15,4 @@ import fairseq.optim
 import fairseq.optim.lr_scheduler
 import fairseq.pdb
 import fairseq.tasks
+import fairseq.data

@@ -226,7 +226,9 @@ class IndexedRawTextDataset(FairseqDataset):
                 tokens = dictionary.encode_line(
                     line, add_if_not_exist=False,
                     append_eos=self.append_eos, reverse_order=self.reverse_order,
-                ).long()
+                )
+                if dictionary.type != 'char':
+                    tokens = tokens.long()
                 self.tokens_list.append(tokens)
                 self.sizes.append(len(tokens))
         self.sizes = np.array(self.sizes)
@@ -281,7 +283,10 @@ class IndexedDatasetBuilder(object):
 
     def add_item(self, tensor):
         # +1 for Lua compatibility
-        bytes = self.out_file.write(np.array(tensor.numpy() + 1, dtype=self.dtype))
+        if type(tensor) == list:
+            bytes = self.out_file.write(tensor)
+        else:
+            bytes = self.out_file.write(np.array(tensor.numpy() + 1, dtype=self.dtype))
         self.data_offsets.append(self.data_offsets[-1] + bytes / self.element_size)
         for s in tensor.size():
             self.sizes.append(s)

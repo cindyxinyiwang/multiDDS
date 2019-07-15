@@ -28,12 +28,14 @@ from .sinusoidal_positional_embedding import SinusoidalPositionalEmbedding
 from .transformer_sentence_encoder_layer import TransformerSentenceEncoderLayer
 from .transformer_sentence_encoder import TransformerSentenceEncoder
 from .unfold import unfold1d
+from .SDEembedding import SDEembedding
 
 __all__ = [
     'AdaptiveInput',
     'AdaptiveSoftmax',
     'BeamableMM',
     'CharacterTokenEmbedder',
+    'SDEembedding',
     'ConvTBC',
     'DownsampledMultiHeadAttention',
     'DynamicConv1dTBC',

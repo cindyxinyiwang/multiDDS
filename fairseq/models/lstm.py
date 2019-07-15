@@ -17,7 +17,7 @@ from fairseq.models import (
     register_model,
     register_model_architecture,
 )
-from fairseq.modules import AdaptiveSoftmax
+from fairseq.modules import AdaptiveSoftmax, SDEembedding
 
 
 @register_model('lstm')
@@ -151,6 +151,7 @@ class LSTMModel(FairseqEncoderDecoderModel):
             dropout_out=args.encoder_dropout_out,
             bidirectional=args.encoder_bidirectional,
             pretrained_embed=pretrained_encoder_embed,
+            sde=args.sde,
         )
         decoder = LSTMDecoder(
             dictionary=task.target_dictionary,
@@ -177,7 +178,7 @@ class LSTMEncoder(FairseqEncoder):
     def __init__(
         self, dictionary, embed_dim=512, hidden_size=512, num_layers=1,
         dropout_in=0.1, dropout_out=0.1, bidirectional=False,
-        left_pad=True, pretrained_embed=None, padding_value=0.,
+        left_pad=True, pretrained_embed=None, padding_value=0., sde=False,
     ):
         super().__init__(dictionary)
         self.num_layers = num_layers
@@ -190,9 +191,11 @@ class LSTMEncoder(FairseqEncoder):
         self.padding_idx = dictionary.pad()
         if pretrained_embed is None:
             self.embed_tokens = Embedding(num_embeddings, embed_dim, self.padding_idx)
+        elif sde:
+            self.embed_tokens = SDEembedding(char_vsize=num_embeddings, d_vec=embed_dim)
         else:
             self.embed_tokens = pretrained_embed
-
+        self.sde = sde
         self.lstm = LSTM(
             input_size=embed_dim,
             hidden_size=hidden_size,
@@ -208,7 +211,7 @@ class LSTMEncoder(FairseqEncoder):
             self.output_units *= 2
 
     def forward(self, src_tokens, src_lengths):
-        if self.left_pad:
+        if self.left_pad and not self.sde:
             # nn.utils.rnn.pack_padded_sequence requires right-padding;
             # convert left-padding to right-padding
             src_tokens = utils.convert_padding_direction(
@@ -216,8 +219,11 @@ class LSTMEncoder(FairseqEncoder):
                 self.padding_idx,
                 left_to_right=True,
             )
-
-        bsz, seqlen = src_tokens.size()
+        if self.sde:
+            bsz = len(src_tokens)
+        else:
+            bsz, seqlen = src_tokens.size()
+            encoder_padding_mask = src_tokens.eq(self.padding_idx).t()
 
         # embed tokens
         x = self.embed_tokens(src_tokens)
@@ -225,6 +231,12 @@ class LSTMEncoder(FairseqEncoder):
 
         # B x T x C -> T x B x C
         x = x.transpose(0, 1)
+        if self.sde:
+            seqlen = x.size(0)
+            encoder_padding_mask = []
+            for s in src_tokens:
+                encoder_padding_mask.append([0 for _ in range(len(s))] + [1 for _ in range(seqlen-len(s))])
+            encoder_padding_mask = torch.ByteTensor(encoder_padding_mask, device=x.device).t()
 
         # pack embedded source tokens into a PackedSequence
         packed_x = nn.utils.rnn.pack_padded_sequence(x, src_lengths.data.tolist())
@@ -241,7 +253,7 @@ class LSTMEncoder(FairseqEncoder):
         # unpack outputs and apply dropout
         x, _ = nn.utils.rnn.pad_packed_sequence(packed_outs, padding_value=self.padding_value)
         x = F.dropout(x, p=self.dropout_out, training=self.training)
-        assert list(x.size()) == [seqlen, bsz, self.output_units]
+        #assert list(x.size()) == [seqlen, bsz, self.output_units]
 
         if self.bidirectional:
 
@@ -252,7 +264,6 @@ class LSTMEncoder(FairseqEncoder):
             final_hiddens = combine_bidir(final_hiddens)
             final_cells = combine_bidir(final_cells)
 
-        encoder_padding_mask = src_tokens.eq(self.padding_idx).t()
 
         return {
             'encoder_out': (x, final_hiddens, final_cells),

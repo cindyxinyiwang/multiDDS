@@ -8,7 +8,7 @@
 import torch
 
 from fairseq import tokenizer
-from fairseq.data import data_utils, FairseqDataset, iterators, Dictionary
+from fairseq.data import data_utils, FairseqDataset, iterators, Dictionary, CharNgramDictionary
 
 
 class FairseqTask(object):
@@ -27,16 +27,19 @@ class FairseqTask(object):
         self.datasets = {}
 
     @classmethod
-    def load_dictionary(cls, filename):
+    def load_dictionary(cls, filename, sde=False):
         """Load the dictionary from the filename
 
         Args:
             filename (str): the filename
         """
-        return Dictionary.load(filename)
+        if sde: 
+            return CharNgramDictionary.load(filename)
+        else:
+            return Dictionary.load(filename)
 
     @classmethod
-    def build_dictionary(cls, filenames, workers=1, threshold=-1, nwords=-1, padding_factor=8):
+    def build_dictionary(cls, filenames, workers=1, threshold=-1, nwords=-1, padding_factor=8, sde=False):
         """Build the dictionary
 
         Args:
@@ -49,9 +52,16 @@ class FairseqTask(object):
                 multiple of 8, which is important on some hardware (e.g., Nvidia
                 Tensor Cores).
         """
-        d = Dictionary()
+        if sde:
+          d = CharNgramDictionary()
+          print("char dict")
+        else:
+          d = Dictionary()
         for filename in filenames:
-            Dictionary.add_file_to_dictionary(filename, d, tokenizer.tokenize_line, workers)
+            if sde:
+                CharNgramDictionary.add_file_to_dictionary(filename, d, tokenizer.tokenize_line, workers)
+            else:
+                Dictionary.add_file_to_dictionary(filename, d, tokenizer.tokenize_line, workers)
         d.finalize(threshold=threshold, nwords=nwords, padding_factor=padding_factor)
         return d
 

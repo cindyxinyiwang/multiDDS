@@ -13,7 +13,7 @@ from . import data_utils, FairseqDataset
 
 def collate(
     samples, pad_idx, eos_idx, left_pad_source=True, left_pad_target=False,
-    input_feeding=True,
+    input_feeding=True, char_dim=None,
 ):
     if len(samples) == 0:
         return {}
@@ -25,12 +25,37 @@ def collate(
         )
 
     id = torch.LongTensor([s['id'] for s in samples])
-    src_tokens = merge('source', left_pad=left_pad_source)
-    # sort by descending source length
-    src_lengths = torch.LongTensor([s['source'].numel() for s in samples])
-    src_lengths, sort_order = src_lengths.sort(descending=True)
-    id = id.index_select(0, sort_order)
-    src_tokens = src_tokens.index_select(0, sort_order)
+
+    if type(samples[0]['source']) == list:
+        src_length = [len(s['source']) for s in samples]
+        max_len = max(src_length)
+        char_sparse = []       
+        for s in samples:
+            key, val = [], []
+            kvs = s['source']
+
+            for i, kv in enumerate(kvs):
+                key.append(torch.LongTensor([[i for _ in range(len(kv.keys()))], list(kv.keys())]))
+                val.extend(list(kv.values()))
+            key = torch.cat(key, dim=1)
+            val = torch.FloatTensor(val)
+            sent_sparse = torch.sparse.FloatTensor(key, val, torch.Size([max_len, char_dim]))
+            char_sparse.append(sent_sparse)
+
+        src_length = np.array(src_length)
+        char_sparse = np.array(char_sparse)
+        sort_order = np.argsort(-src_length)
+
+        src_tokens = char_sparse[sort_order].tolist() 
+        src_lengths = torch.LongTensor(src_length[sort_order])
+        sort_order = torch.LongTensor(sort_order)
+    else:
+        src_tokens = merge('source', left_pad=left_pad_source)
+        # sort by descending source length
+        src_lengths = torch.LongTensor([s['source'].numel() for s in samples])
+        src_lengths, sort_order = src_lengths.sort(descending=True)
+        id = id.index_select(0, sort_order)
+        src_tokens = src_tokens.index_select(0, sort_order)
 
     prev_output_tokens = None
     target = None
@@ -180,7 +205,7 @@ class LanguagePairDataset(FairseqDataset):
         return collate(
             samples, pad_idx=self.src_dict.pad(), eos_idx=self.src_dict.eos(),
             left_pad_source=self.left_pad_source, left_pad_target=self.left_pad_target,
-            input_feeding=self.input_feeding,
+            input_feeding=self.input_feeding, char_dim=len(self.src_dict)
         )
 
     def num_tokens(self, index):
