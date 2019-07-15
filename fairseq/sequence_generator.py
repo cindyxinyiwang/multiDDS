@@ -128,32 +128,59 @@ class SequenceGenerator(object):
         }
 
         src_tokens = encoder_input['src_tokens']
-        src_lengths = (src_tokens.ne(self.eos) & src_tokens.ne(self.pad)).long().sum(dim=1)
-        input_size = src_tokens.size()
-        # batch dimension goes first followed by source lengths
-        bsz = input_size[0]
-        src_len = input_size[1]
-        beam_size = self.beam_size
+        if type(src_tokens) == list:
+            src_lengths = encoder_input['src_lengths']
+            # batch dimension goes first followed by source lengths
+            bsz = len(src_tokens)
+            src_len = len(src_tokens[0])
+            beam_size = self.beam_size
 
-        if self.match_source_len:
-            max_len = src_lengths.max().item()
+            if self.match_source_len:
+                max_len = src_lengths.max().item()
+            else:
+                max_len = min(
+                    int(self.max_len_a * src_len + self.max_len_b),
+                    # exclude the EOS marker
+                    model.max_decoder_positions() - 1,
+                )
+
+            # compute the encoder output for each beam
+            encoder_outs = model.forward_encoder(encoder_input)
+            new_order = torch.arange(bsz).view(-1, 1).repeat(1, beam_size).view(-1)
+            new_order = new_order.to(encoder_input['src_lengths'].device).long()
+            encoder_outs = model.reorder_encoder_out(encoder_outs, new_order)
+
+            scores = encoder_input['src_lengths'].new(bsz * beam_size, max_len + 1).float().fill_(0)
+            scores_buf = scores.clone()
+            tokens = encoder_input['src_lengths'].data.new(bsz * beam_size, max_len + 2).long().fill_(self.pad)
+
         else:
-            max_len = min(
-                int(self.max_len_a * src_len + self.max_len_b),
-                # exclude the EOS marker
-                model.max_decoder_positions() - 1,
-            )
+            src_lengths = (src_tokens.ne(self.eos) & src_tokens.ne(self.pad)).long().sum(dim=1)
+            input_size = src_tokens.size()
+            # batch dimension goes first followed by source lengths
+            bsz = input_size[0]
+            src_len = input_size[1]
+            beam_size = self.beam_size
 
-        # compute the encoder output for each beam
-        encoder_outs = model.forward_encoder(encoder_input)
-        new_order = torch.arange(bsz).view(-1, 1).repeat(1, beam_size).view(-1)
-        new_order = new_order.to(src_tokens.device).long()
-        encoder_outs = model.reorder_encoder_out(encoder_outs, new_order)
+            if self.match_source_len:
+                max_len = src_lengths.max().item()
+            else:
+                max_len = min(
+                    int(self.max_len_a * src_len + self.max_len_b),
+                    # exclude the EOS marker
+                    model.max_decoder_positions() - 1,
+                )
 
-        # initialize buffers
-        scores = src_tokens.new(bsz * beam_size, max_len + 1).float().fill_(0)
-        scores_buf = scores.clone()
-        tokens = src_tokens.data.new(bsz * beam_size, max_len + 2).long().fill_(self.pad)
+            # compute the encoder output for each beam
+            encoder_outs = model.forward_encoder(encoder_input)
+            new_order = torch.arange(bsz).view(-1, 1).repeat(1, beam_size).view(-1)
+            new_order = new_order.to(src_tokens.device).long()
+            encoder_outs = model.reorder_encoder_out(encoder_outs, new_order)
+
+            # initialize buffers
+            scores = src_tokens.new(bsz * beam_size, max_len + 1).float().fill_(0)
+            scores_buf = scores.clone()
+            tokens = src_tokens.data.new(bsz * beam_size, max_len + 2).long().fill_(self.pad)
         tokens_buf = tokens.clone()
         tokens[:, 0] = bos_token or self.eos
         attn, attn_buf = None, None

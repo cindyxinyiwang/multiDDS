@@ -13,7 +13,7 @@ class QueryEmb(nn.Module):
     self.dropout = nn.Dropout(0.1)
     self.emb_matrix = nn.Parameter(torch.ones(vocab_size, d_vec).uniform_(-0.1, 0.1), requires_grad=True)
     self.softmax = nn.Softmax(dim=-1)
- 
+
   def forward(self, q):
     """ 
     dot prodct attention: (q * k.T) * v
@@ -61,10 +61,12 @@ class charEmbedder(nn.Module):
 
 
 class SDEembedding(nn.Module):
-  def __init__(self, char_vsize, d_vec, vocab_size=10):
+  def __init__(self, char_vsize, d_vec, vocab_size=10, padding_idx=None):
     super(SDEembedding, self).__init__()
     self.char_emb = charEmbedder(char_vsize, d_vec)
     self.query_emb = QueryEmb(vocab_size, d_vec)
+    self.embedding_dim = d_vec
+    self.padding_idx = padding_idx
 
   def forward(self, tokens):
     char_emb = self.char_emb(tokens)

@@ -110,11 +110,14 @@ def main(args):
             for i, sample_id in enumerate(sample['id'].tolist()):
                 has_target = sample['target'] is not None
 
-                # Remove padding
-                src_tokens = utils.strip_pad(sample['net_input']['src_tokens'][i, :], tgt_dict.pad())
                 target_tokens = None
                 if has_target:
                     target_tokens = utils.strip_pad(sample['target'][i, :], tgt_dict.pad()).int().cpu()
+                # Remove padding
+                if args.sde:
+                    src_tokens = target_tokens
+                else:
+                    src_tokens = utils.strip_pad(sample['net_input']['src_tokens'][i, :], tgt_dict.pad())
 
                 # Either retrieve the original sentences or regenerate them from tokens.
                 if align_dict is not None:

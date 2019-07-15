@@ -7,4 +7,7 @@ python train.py data-bin/debug/ \
 	--max-tokens 100 \
 	--dataset-impl raw \
 	--no-epoch-checkpoints \
-	--save-dir checkpoints/debug 
+	--lr 0.001 \
+	--distributed-world-size 1 \
+	--sde \
+	--save-dir checkpoints/debug_sde 

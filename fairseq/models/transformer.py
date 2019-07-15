@@ -25,6 +25,7 @@ from fairseq.modules import (
     MultiheadAttention,
     PositionalEmbedding,
     SinusoidalPositionalEmbedding,
+    SDEembedding,
 )
 
 DEFAULT_MAX_SOURCE_POSITIONS = 1024
@@ -132,7 +133,10 @@ class TransformerModel(FairseqEncoderDecoderModel):
         def build_embedding(dictionary, embed_dim, path=None):
             num_embeddings = len(dictionary)
             padding_idx = dictionary.pad()
-            emb = Embedding(num_embeddings, embed_dim, padding_idx)
+            if args.sde:
+                emb = SDEembedding(char_vsize=num_embeddings, d_vec=embed_dim, padding_idx=padding_idx)
+            else:
+                emb = Embedding(num_embeddings, embed_dim, padding_idx)
             # if provided, load from preloaded dictionaries
             if path:
                 embed_dict = utils.parse_embedding(path)

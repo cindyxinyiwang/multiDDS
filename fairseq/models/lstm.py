@@ -236,7 +236,7 @@ class LSTMEncoder(FairseqEncoder):
             encoder_padding_mask = []
             for s in src_tokens:
                 encoder_padding_mask.append([0 for _ in range(len(s))] + [1 for _ in range(seqlen-len(s))])
-            encoder_padding_mask = torch.ByteTensor(encoder_padding_mask, device=x.device).t()
+            encoder_padding_mask = torch.tensor(encoder_padding_mask, device=x.device).byte().t()
 
         # pack embedded source tokens into a PackedSequence
         packed_x = nn.utils.rnn.pack_padded_sequence(x, src_lengths.data.tolist())
