@@ -61,7 +61,7 @@ class charEmbedder(nn.Module):
 
 
 class SDEembedding(nn.Module):
-  def __init__(self, char_vsize, d_vec, vocab_size=10, padding_idx=None):
+  def __init__(self, char_vsize, d_vec, vocab_size=10000, padding_idx=None):
     super(SDEembedding, self).__init__()
     self.char_emb = charEmbedder(char_vsize, d_vec)
     self.query_emb = QueryEmb(vocab_size, d_vec)

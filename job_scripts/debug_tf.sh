@@ -2,6 +2,8 @@
 
 python train.py data-bin/debug/ \
 	--source-lang src --target-lang trg \
+	--sde \
+	--distributed-world-size 1 \
 	--task translation \
 	--arch transformer \
 	--max-tokens 100 \
@@ -9,7 +11,6 @@ python train.py data-bin/debug/ \
 	--no-epoch-checkpoints \
 	--lr 0.001 \
 	--distributed-world-size 1 \
-	--sde \
         --optimizer adam \
         --adam-betas '(0.9, 0.98)' \
         --lr-scheduler inverse_sqrt \

@@ -130,10 +130,10 @@ class TransformerModel(FairseqEncoderDecoderModel):
 
         src_dict, tgt_dict = task.source_dictionary, task.target_dictionary
 
-        def build_embedding(dictionary, embed_dim, path=None):
+        def build_embedding(dictionary, embed_dim, path=None, sde=False):
             num_embeddings = len(dictionary)
             padding_idx = dictionary.pad()
-            if args.sde:
+            if sde:
                 emb = SDEembedding(char_vsize=num_embeddings, d_vec=embed_dim, padding_idx=padding_idx)
             else:
                 emb = Embedding(num_embeddings, embed_dim, padding_idx)
@@ -153,13 +153,13 @@ class TransformerModel(FairseqEncoderDecoderModel):
                     args.decoder_embed_path != args.encoder_embed_path):
                 raise ValueError('--share-all-embeddings not compatible with --decoder-embed-path')
             encoder_embed_tokens = build_embedding(
-                src_dict, args.encoder_embed_dim, args.encoder_embed_path
+                src_dict, args.encoder_embed_dim, args.encoder_embed_path, sde=args.sde,
             )
             decoder_embed_tokens = encoder_embed_tokens
             args.share_decoder_input_output_embed = True
         else:
             encoder_embed_tokens = build_embedding(
-                src_dict, args.encoder_embed_dim, args.encoder_embed_path
+                src_dict, args.encoder_embed_dim, args.encoder_embed_path, sde=args.sde,
             )
             decoder_embed_tokens = build_embedding(
                 tgt_dict, args.decoder_embed_dim, args.decoder_embed_path
@@ -205,7 +205,8 @@ class TransformerEncoder(FairseqEncoder):
             args.max_source_positions, embed_dim, self.padding_idx,
             learned=args.encoder_learned_pos,
         ) if not args.no_token_positional_embeddings else None
-
+        
+        self.sde = args.sde
         self.layers = nn.ModuleList([])
         self.layers.extend([
             TransformerEncoderLayer(args)
@@ -234,15 +235,28 @@ class TransformerEncoder(FairseqEncoder):
         """
         # embed tokens and positions
         x = self.embed_scale * self.embed_tokens(src_tokens)
+
+        # compute padding mask
+        if self.sde:
+            seqlen = x.size(1)
+            encoder_padding_mask = []
+            for s in src_tokens:
+                encoder_padding_mask.append([0 for _ in range(len(s))] + [1 for _ in range(seqlen-len(s))])
+            encoder_padding_mask = torch.tensor(encoder_padding_mask, device=x.device).byte()
+        else:
+            encoder_padding_mask = src_tokens.eq(self.padding_idx)
+
         if self.embed_positions is not None:
-            x += self.embed_positions(src_tokens)
+            if self.sde:
+                padding_src = encoder_padding_mask.clone().masked_fill(encoder_padding_mask, self.padding_idx)
+                x += self.embed_positions(padding_src)
+            else:
+                x += self.embed_positions(src_tokens)
         x = F.dropout(x, p=self.dropout, training=self.training)
 
         # B x T x C -> T x B x C
         x = x.transpose(0, 1)
 
-        # compute padding mask
-        encoder_padding_mask = src_tokens.eq(self.padding_idx)
         if not encoder_padding_mask.any():
             encoder_padding_mask = None
 
