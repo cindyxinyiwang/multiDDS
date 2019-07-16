@@ -1,16 +1,14 @@
 #!/bin/bash
 
-#SBATCH --partition=uninterrupted
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=8
-#SBATCH --gres=gpu:8
+#SBATCH --gres=gpu:1
 #SBATCH --time=2330
-#SBATCH --mem=100GB
+#SBATCH --mem=15GB
 
+#SBATCH --job-name=lorelei
+#SBATCH --output=checkpoints/debug_sde/decode.out
+#SBATCH --output=checkpoints/debug_sde/decode-%j.err
 
-#SBATCH --job-name=decode_eli_transformer
-#SBATCH --output=eli-qd-trans-%j.out
-#SBATCH --error=eli-qd-trans-%j.er
 python generate.py data-bin/debug \
 	--path checkpoints/debug_sde/checkpoint_best.pt \
 	--source-lang src --target-lang trg \

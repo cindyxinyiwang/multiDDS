@@ -1,4 +1,13 @@
+#!/bin/bash
 
+#SBATCH --nodes=1
+#SBATCH --gres=gpu:1
+#SBATCH --time=2330
+#SBATCH --mem=15GB
+
+#SBATCH --job-name=lorelei
+#SBATCH --output=checkpoints/debug_sde/eli-qd-trans-%j.out
+#SBATCH --output=checkpoints/debug_sde/eli-qd-trans-%j.err
 
 python train.py data-bin/debug/ \
 	--source-lang src --target-lang trg \
