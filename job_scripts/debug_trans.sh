@@ -10,12 +10,11 @@
 #SBATCH --output=checkpoints/debug_sde/decode-%j.err
 
 python generate.py data-bin/debug \
-	--path checkpoints/debug_sde/checkpoint_best.pt \
+	--path checkpoints/debug/checkpoint_best.pt \
 	--source-lang src --target-lang trg \
 	--skip-invalid-size-inputs-valid-test \
 	--gen-subset test \
 	--dataset-impl raw \
-	--sde \
 	--task translation \
 	--nbest 1 \
 	--beam 10 \

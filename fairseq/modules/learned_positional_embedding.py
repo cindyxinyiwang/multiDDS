@@ -1,9 +1,7 @@
-# Copyright (c) 2017-present, Facebook, Inc.
-# All rights reserved.
+# Copyright (c) Facebook, Inc. and its affiliates.
 #
-# This source code is licensed under the license found in the LICENSE file in
-# the root directory of this source tree. An additional grant of patent rights
-# can be found in the PATENTS file in the same directory.
+# This source code is licensed under the MIT license found in the
+# LICENSE file in the root directory of this source tree.
 
 import torch.nn as nn
 
@@ -36,7 +34,8 @@ class LearnedPositionalEmbedding(nn.Embedding):
         if positions is None:
             if incremental_state is not None:
                 # positions is the same for every token when decoding a single step
-                positions = input.data.new(1, 1).fill_(self.padding_idx + input.size(1))
+                # Without the int() cast, it doesn't work in some cases when exporting to ONNX
+                positions = input.data.new(1, 1).fill_(int(self.padding_idx + input.size(1)))
             else:
                 positions = utils.make_positions(
                     input.data, self.padding_idx, onnx_trace=self.onnx_trace,

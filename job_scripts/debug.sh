@@ -18,5 +18,4 @@ python train.py data-bin/debug/ \
 	--no-epoch-checkpoints \
 	--lr 0.001 \
 	--distributed-world-size 1 \
-	--sde \
-	--save-dir checkpoints/debug_sde 
+	--save-dir checkpoints/debug 

@@ -1,9 +1,7 @@
-# Copyright (c) 2017-present, Facebook, Inc.
-# All rights reserved.
+# Copyright (c) Facebook, Inc. and its affiliates.
 #
-# This source code is licensed under the license found in the LICENSE file in
-# the root directory of this source tree. An additional grant of patent rights
-# can be found in the PATENTS file in the same directory.
+# This source code is licensed under the MIT license found in the
+# LICENSE file in the root directory of this source tree.
 
 import argparse
 
@@ -11,6 +9,7 @@ import torch
 import sys
 
 from fairseq import utils
+from fairseq.data.indexed_dataset import get_available_dataset_impl
 
 
 def get_preprocessing_parser(default_task='translation'):
@@ -49,6 +48,14 @@ def get_eval_lm_parser(default_task='language_modeling'):
     return parser
 
 
+def get_validation_parser(default_task=None):
+    parser = get_parser('Validation', default_task)
+    add_dataset_args(parser, train=True)
+    group = parser.add_argument_group('Evaluation')
+    add_common_eval_args(group)
+    return parser
+
+
 def eval_str_list(x, type=float):
     if x is None:
         return None
@@ -69,7 +76,26 @@ def eval_bool(x, default=False):
         return default
 
 
-def parse_args_and_arch(parser, input_args=None, parse_known=False):
+def parse_args_and_arch(parser, input_args=None, parse_known=False, suppress_defaults=False):
+    if suppress_defaults:
+        # Parse args without any default values. This requires us to parse
+        # twice, once to identify all the necessary task/model args, and a second
+        # time with all defaults set to None.
+        args = parse_args_and_arch(
+            parser,
+            input_args=input_args,
+            parse_known=parse_known,
+            suppress_defaults=False,
+        )
+        suppressed_parser = argparse.ArgumentParser(add_help=False, parents=[parser])
+        suppressed_parser.set_defaults(**{k: None for k, v in vars(args).items()})
+        args = suppressed_parser.parse_args(input_args)
+        return argparse.Namespace(**{
+            k: v
+            for k, v in vars(args).items()
+            if v is not None
+        })
+
     from fairseq.models import ARCH_MODEL_REGISTRY, ARCH_CONFIG_REGISTRY
 
     # The parser doesn't know about model/criterion/optimizer-specific args, so
@@ -216,8 +242,9 @@ def add_preprocess_args(parser):
                        help="number of source words to retain")
     group.add_argument("--alignfile", metavar="ALIGN", default=None,
                        help="an alignment file (optional)")
-    parser.add_argument('--dataset-impl', metavar="FORMAT", help='output dataset implementation',
-                        choices=['raw', 'lazy', 'cached', 'mmap'], default='cached')
+    parser.add_argument('--dataset-impl', metavar='FORMAT', default='mmap',
+                        choices=get_available_dataset_impl(),
+                        help='output dataset implementation')
     group.add_argument("--joined-dictionary", action="store_true",
                        help="Generate joined dictionary")
     group.add_argument("--only-source", action="store_true",
@@ -233,7 +260,7 @@ def add_preprocess_args(parser):
 def add_dataset_args(parser, train=False, gen=False):
     group = parser.add_argument_group('Dataset and data loading')
     # fmt: off
-    group.add_argument('--num-workers', default=0, type=int, metavar='N',
+    group.add_argument('--num-workers', default=1, type=int, metavar='N',
                        help='how many subprocesses to use for data loading')
     group.add_argument('--skip-invalid-size-inputs-valid-test', action='store_true',
                        help='ignore too long or too short lines in valid and test set')
@@ -243,8 +270,9 @@ def add_dataset_args(parser, train=False, gen=False):
                        help='maximum number of sentences in a batch')
     group.add_argument('--required-batch-size-multiple', default=8, type=int, metavar='N',
                        help='batch size will be a multiplier of this value')
-    parser.add_argument('--dataset-impl', metavar="FORMAT", help='output dataset implementation',
-                        choices=['raw', 'lazy', 'cached', 'mmap'], default='cached')
+    parser.add_argument('--dataset-impl', metavar='FORMAT',
+                        choices=get_available_dataset_impl(),
+                        help='output dataset implementation')
     if train:
         group.add_argument('--train-subset', default='train', metavar='SPLIT',
                            choices=['train', 'valid', 'test'],
@@ -332,7 +360,7 @@ def add_optimization_args(parser):
     group.add_argument('--min-lr', default=-1, type=float, metavar='LR',
                        help='stop training when the learning rate reaches this minimum')
     group.add_argument('--use-bmuf', default=False, action='store_true',
-                        help="specify global optimizer for syncing models on different GPUs/Shards")
+                       help='specify global optimizer for syncing models on different GPUs/shards')
     # fmt: on
     return group
 
@@ -343,7 +371,8 @@ def add_checkpoint_args(parser):
     group.add_argument('--save-dir', metavar='DIR', default='checkpoints',
                        help='path to save checkpoints')
     group.add_argument('--restore-file', default='checkpoint_last.pt',
-                       help='filename in save-dir from which to load checkpoint')
+                       help='filename from which to load checkpoint '
+                            '(default: <save-dir>/checkpoint_last.pt')
     group.add_argument('--reset-dataloader', action='store_true',
                        help='if set, does not reload dataloader state from the checkpoint')
     group.add_argument('--reset-lr-scheduler', action='store_true',
@@ -430,9 +459,7 @@ def add_generation_args(parser):
     group.add_argument('--match-source-len', default=False, action='store_true',
                        help=('generations should match the source length'))
     group.add_argument('--no-early-stop', action='store_true',
-                       help=('continue searching even after finalizing k=beam '
-                             'hypotheses; this is more correct, but increases '
-                             'generation time by 50%%'))
+                       help='deprecated')
     group.add_argument('--unnormalized', action='store_true',
                        help='compare unnormalized hypothesis scores')
     group.add_argument('--no-beamable-mm', action='store_true',
@@ -455,6 +482,8 @@ def add_generation_args(parser):
                        help='sample hypotheses instead of using beam search')
     group.add_argument('--sampling-topk', default=-1, type=int, metavar='PS',
                        help='sample from top K likely next words instead of all words')
+    group.add_argument('--sampling-topp', default=-1.0, type=float, metavar='PS',
+                       help='sample from the smallest set whose cumulative probability mass exceeds p for next words')
     group.add_argument('--temperature', default=1., type=float, metavar='N',
                        help='temperature for generation')
     group.add_argument('--diverse-beam-groups', default=-1, type=int, metavar='N',

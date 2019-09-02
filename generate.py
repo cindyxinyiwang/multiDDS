@@ -1,10 +1,8 @@
 #!/usr/bin/env python3 -u
-# Copyright (c) 2017-present, Facebook, Inc.
-# All rights reserved.
+# Copyright (c) Facebook, Inc. and its affiliates.
 #
-# This source code is licensed under the license found in the LICENSE file in
-# the root directory of this source tree. An additional grant of patent rights
-# can be found in the PATENTS file in the same directory.
+# This source code is licensed under the MIT license found in the
+# LICENSE file in the root directory of this source tree.
 """
 Translate pre-processed data with a trained model.
 """
@@ -138,7 +136,7 @@ def main(args):
                         print('T-{}\t{}'.format(sample_id, target_str))
 
                 # Process top predictions
-                for j, hypo in enumerate(hypos[i][:min(len(hypos), args.nbest)]):
+                for j, hypo in enumerate(hypos[i][:args.nbest]):
                     hypo_tokens, hypo_str, alignment = utils.post_process_prediction(
                         hypo_tokens=hypo['tokens'].int().cpu(),
                         src_str=src_str,
