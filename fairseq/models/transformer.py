@@ -67,8 +67,8 @@ class TransformerModel(FairseqEncoderDecoderModel):
         }
         # fmt: on
 
-    def __init__(self, encoder, decoder):
-        super().__init__(encoder, decoder)
+    def __init__(self, encoder, decoder, args):
+        super().__init__(encoder, decoder, args)
 
     @staticmethod
     def add_args(parser):
@@ -176,7 +176,7 @@ class TransformerModel(FairseqEncoderDecoderModel):
 
         encoder = cls.build_encoder(args, src_dict, encoder_embed_tokens)
         decoder = cls.build_decoder(args, tgt_dict, decoder_embed_tokens)
-        return TransformerModel(encoder, decoder)
+        return TransformerModel(encoder, decoder, args)
 
     @classmethod
     def build_encoder(cls, args, src_dict, embed_tokens):

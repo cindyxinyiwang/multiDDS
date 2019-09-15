@@ -299,6 +299,11 @@ def add_dataset_args(parser, train=False, gen=False):
                            help='shard generation over N shards')
         group.add_argument('--shard-id', default=0, type=int, metavar='ID',
                            help='id of the shard to generate (id < num_shards)')
+    group.add_argument('--src-tag', type=str, default=None,
+                   help='tag to add to source sentences')
+    group.add_argument('--tgt-tag', type=str, default=None,
+                   help='tag to add to target sentences')
+ 
     # fmt: on
     return group
 

@@ -5,13 +5,14 @@
 
 import numpy as np
 import torch
+import random
 
 from . import data_utils, FairseqDataset
 
 
 def collate(
     samples, pad_idx, eos_idx, left_pad_source=True, left_pad_target=False,
-    input_feeding=True, char_dim=None,
+    input_feeding=True, char_dim=None, reverse=False, src_tag_idx=-1, tgt_tag_idx=-1,
 ):
     if len(samples) == 0:
         return {}
@@ -24,7 +25,23 @@ def collate(
 
     id = torch.LongTensor([s['id'] for s in samples])
 
+    if src_tag_idx >= 0:
+        data_utils.add_tag(samples, 'source', src_tag_idx)
+
+    if tgt_tag_idx >= 0:
+        data_utils.add_tag(samples, 'target', tgt_tag_idx)
+
+    #if random.random() < 0.5:
+    #    s_key = 'target'
+    #    t_key = 'source'
+    #else:
+    #    s_key = 'source'
+    #    t_key = 'target'
+    s_key = 'source'
+    t_key = 'target'
+ 
     if type(samples[0]['source']) == list:
+        # SDE
         src_length = [len(s['source']) for s in samples]
         max_len = max(src_length)
         char_sparse = []       
@@ -48,31 +65,31 @@ def collate(
         src_lengths = torch.LongTensor(src_length[sort_order])
         sort_order = torch.LongTensor(sort_order)
     else:
-        src_tokens = merge('source', left_pad=left_pad_source)
+        src_tokens = merge(s_key, left_pad=left_pad_source)
         # sort by descending source length
-        src_lengths = torch.LongTensor([s['source'].numel() for s in samples])
+        src_lengths = torch.LongTensor([s[s_key].numel() for s in samples])
         src_lengths, sort_order = src_lengths.sort(descending=True)
         id = id.index_select(0, sort_order)
         src_tokens = src_tokens.index_select(0, sort_order)
 
     prev_output_tokens = None
     target = None
-    if samples[0].get('target', None) is not None:
-        target = merge('target', left_pad=left_pad_target)
+    if samples[0].get(t_key, None) is not None:
+        target = merge(t_key, left_pad=left_pad_target)
         target = target.index_select(0, sort_order)
-        ntokens = sum(len(s['target']) for s in samples)
+        ntokens = sum(len(s[t_key]) for s in samples)
 
         if input_feeding:
             # we create a shifted version of targets for feeding the
             # previous output token(s) into the next decoder step
             prev_output_tokens = merge(
-                'target',
+                t_key,
                 left_pad=left_pad_target,
                 move_eos_to_beginning=True,
             )
             prev_output_tokens = prev_output_tokens.index_select(0, sort_order)
     else:
-        ntokens = sum(len(s['source']) for s in samples)
+        ntokens = sum(len(s[s_key]) for s in samples)
 
     batch = {
         'id': id,
@@ -124,6 +141,7 @@ class LanguagePairDataset(FairseqDataset):
         left_pad_source=True, left_pad_target=False,
         max_source_positions=1024, max_target_positions=1024,
         shuffle=True, input_feeding=True, remove_eos_from_source=False, append_eos_to_target=False,
+        src_tag=None, tgt_tag=None,
     ):
         if tgt_dict is not None:
             assert src_dict.pad() == tgt_dict.pad()
@@ -143,6 +161,18 @@ class LanguagePairDataset(FairseqDataset):
         self.input_feeding = input_feeding
         self.remove_eos_from_source = remove_eos_from_source
         self.append_eos_to_target = append_eos_to_target
+        self.src_tag = src_tag
+        self.tgt_tag = tgt_tag
+        if self.src_tag is not None:
+            self.src_tag_idx = self.src_dict.add_symbol(self.src_tag)
+            self.src_dict.add_symbol(self.tgt_tag)
+        else:
+            self.src_tag_idx = -1
+        if self.tgt_tag is not None:
+            self.tgt_dict.add_symbol(self.src_tag)
+            self.tgt_tag_idx = self.tgt_dict.add_symbol(self.tgt_tag)
+        else:
+            self.tgt_tag_idx = -1
 
     def __getitem__(self, index):
         tgt_item = self.tgt[index] if self.tgt is not None else None
@@ -202,7 +232,8 @@ class LanguagePairDataset(FairseqDataset):
         return collate(
             samples, pad_idx=self.src_dict.pad(), eos_idx=self.src_dict.eos(),
             left_pad_source=self.left_pad_source, left_pad_target=self.left_pad_target,
-            input_feeding=self.input_feeding, char_dim=len(self.src_dict)
+            input_feeding=self.input_feeding, char_dim=len(self.src_dict),
+            src_tag_idx=self.src_tag_idx, tgt_tag_idx=self.tgt_tag_idx,
         )
 
     def num_tokens(self, index):

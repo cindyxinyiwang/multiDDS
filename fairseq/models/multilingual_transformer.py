@@ -37,8 +37,8 @@ class MultilingualTransformerModel(FairseqMultiModel):
         --share-decoders: share all decoder params (incl. embeddings) across all target languages
     """
 
-    def __init__(self, encoders, decoders):
-        super().__init__(encoders, decoders)
+    def __init__(self, encoders, decoders, args):
+        super().__init__(encoders, decoders, args)
 
     @staticmethod
     def add_args(parser):
@@ -162,7 +162,7 @@ class MultilingualTransformerModel(FairseqMultiModel):
             encoders[lang_pair] = shared_encoder if shared_encoder is not None else get_encoder(src)
             decoders[lang_pair] = shared_decoder if shared_decoder is not None else get_decoder(tgt)
 
-        return MultilingualTransformerModel(encoders, decoders)
+        return MultilingualTransformerModel(encoders, decoders, args)
 
     def load_state_dict(self, state_dict, strict=True):
         state_dict_subset = state_dict.copy()

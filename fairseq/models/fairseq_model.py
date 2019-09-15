@@ -187,11 +187,12 @@ class FairseqEncoderDecoderModel(BaseFairseqModel):
         decoder (FairseqDecoder): the decoder
     """
 
-    def __init__(self, encoder, decoder):
+    def __init__(self, encoder, decoder, args=None):
         super().__init__()
 
         self.encoder = encoder
         self.decoder = decoder
+        self.args = args
         assert isinstance(self.encoder, FairseqEncoder)
         assert isinstance(self.decoder, FairseqDecoder)
 
@@ -241,6 +242,8 @@ class FairseqEncoderDecoderModel(BaseFairseqModel):
 
     def max_positions(self):
         """Maximum length supported by the model."""
+        if self.args.task == 'bidirectional_translation':
+            return {key:(self.encoder.max_positions(), self.decoder.max_positions()) for key in self.args.lang_pairs} 
         return (self.encoder.max_positions(), self.decoder.max_positions())
 
     def max_decoder_positions(self):
@@ -262,7 +265,7 @@ class FairseqModel(FairseqEncoderDecoderModel):
 class FairseqMultiModel(BaseFairseqModel):
     """Base class for combining multiple encoder-decoder models."""
 
-    def __init__(self, encoders, decoders):
+    def __init__(self, encoders, decoders, args=None):
         super().__init__()
         assert encoders.keys() == decoders.keys()
         self.keys = list(encoders.keys())
