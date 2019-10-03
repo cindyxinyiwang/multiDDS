@@ -45,6 +45,27 @@ class FairseqOptimizer(object):
             for p in param_group['params']:
                 yield p
 
+    def save_dev_grad(self):
+        """Save dev set gradient"""
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                if p.grad is None: continue
+                state = self.optimizer.state[p]
+                state['dev_grad'] = p.grad.data.clone()
+
+    def get_grad_sim(self):
+        """Get gradient similarity with dev set gradient"""
+        cosine_prod, cosine_norm, dev_cosine_norm = 0, 0, 0
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                if p.grad is None: continue
+                state = self.optimizer.state[p]
+                cosine_prod += (state['dev_grad'] * p.grad.data).sum().item()
+                cosine_norm += p.grad.data.norm(2) ** 2
+                dev_cosine_norm += state['dev_grad'].norm(2) ** 2
+        cosine_sim = cosine_prod / ((cosine_norm*dev_cosine_norm)**0.5 + 1e-10)
+        return cosine_sim.item()
+
     def __getstate__(self):
         return self._optimizer.__getstate__()
 

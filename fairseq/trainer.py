@@ -13,13 +13,14 @@ from itertools import chain
 import math
 import os
 import sys
+import numpy as np
 
 import torch
 
 from fairseq import checkpoint_utils, distributed_utils, models, optim, utils
 from fairseq.meters import AverageMeter, StopwatchMeter, TimeMeter
 from fairseq.optim import lr_scheduler
-
+from fairseq.models import BaseActor, AveEmbActor
 
 class Trainer(object):
     """Main class for data parallel training.
@@ -58,6 +59,16 @@ class Trainer(object):
         self._wrapped_model = None
 
         self.init_meters(args)
+
+        if self.args.data_actor == 'base':
+            # use language level data selector with only bias
+            self.data_actor = BaseActor(args, len(self.args.lang_pairs))
+            if self.cuda:
+                self.data_actor = self.data_actor.cuda()
+            self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
+        elif self.args.data_actor == 'aveemb':
+            self.data_actor = AveEmbActor(args, task)
+            self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
 
     def init_meters(self, args):
         self.meters = OrderedDict()
@@ -220,6 +231,129 @@ class Trainer(object):
 
         return extra_state
 
+    def update_language_sampler_multilin(self, args):
+        """Update the distribution to sample languages """
+        # calculate gradient direction
+        # calculate dev grad
+        # Initialize dev data iterator
+        self.model.train()
+        self.criterion.train()
+        self.zero_grad()
+
+        # #dev dataset x #train dataset
+        all_sim_list = []
+        for i, valid_key in enumerate(self.task.dataset('valid').datasets.keys()):
+            valid_sample = self.task.dataset('valid').get_sample_with_key(valid_key)
+            valid_sample = self._prepare_sample(valid_sample)
+            loss, sample_size, logging_output = self.task.train_step(
+                                    valid_sample, self.model, self.criterion, self.optimizer)
+            self.optimizer.save_dev_grad()
+            self.zero_grad()
+            sim_list = []
+            for j, key in enumerate(self.task.dataset('train').datasets.keys()):
+                sample = self.task.dataset('train').get_sample_with_key(key)
+                sample = self._prepare_sample(sample)
+                #if torch.cuda.is_available() and not self.args.cpu:
+                #    sample = utils.move_to_cuda(sample)
+                # calculate sim
+                loss, sample_size, logging_output = self.task.train_step(
+                                        sample, self.model, self.criterion, self.optimizer)
+                sim = self.optimizer.get_grad_sim()
+                sim_list.append(sim)
+                self.zero_grad()
+            all_sim_list.append(sim_list)
+        # get rewards for languages based on different objectives
+        if self.args.utility_type == 'ave':
+            sim_list = np.mean(np.array(all_sim_list), axis=0).tolist()
+        elif self.args.utility_type == 'min':
+            sim_list = np.array(all_sim_list).min(axis=0).tolist()
+        elif self.args.utility_type == 'median':
+            sim_list = np.array(all_sim_list).median(axis=0).tolist()
+        if self.args.data_actor == 'base':
+            feature = torch.ones(1, len(self.task.dataset('train').datasets.keys()))
+            grad_scale = torch.FloatTensor(sim_list).view(1, -1)
+            if self.cuda:
+                feature = feature.cuda()
+                grad_scale = grad_scale.cuda()
+            for _ in range(self.args.data_actor_optim_step):
+                a_logits = self.data_actor.forward(feature)
+                loss = -torch.nn.functional.log_softmax(a_logits, dim=-1)
+                loss = (loss * grad_scale).sum()
+                loss.backward()
+                self.data_optimizer.step()
+                self.data_optimizer.zero_grad()
+            with torch.no_grad():
+                a_logits = self.data_actor.forward(feature)
+                prob = torch.nn.functional.softmax(a_logits, dim=-1)
+                sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
+        # set sampling distribution
+        self.task.dataset('train').update_sampling_distribution(sim_list)
+
+
+    def update_language_sampler(self, args):
+        """Update the distribution to sample languages """
+        # calculate gradient direction
+        # calculate dev grad
+        # Initialize dev data iterator
+        self.model.train()
+        self.criterion.train()
+        self.zero_grad()
+
+        dev_itr = self.task.get_batch_iterator(
+            dataset=self.task.dataset('valid'),
+            max_tokens=args.max_tokens_valid,
+            max_sentences=args.max_sentences_valid,
+            max_positions=utils.resolve_max_positions(
+                self.task.max_positions(),
+                self.get_model().max_positions(),
+            ),
+            ignore_invalid_inputs=args.skip_invalid_size_inputs_valid_test,
+            required_batch_size_multiple=args.required_batch_size_multiple,
+            seed=args.seed,
+            num_shards=args.distributed_world_size,
+            shard_id=args.distributed_rank,
+            num_workers=args.num_workers,
+        ).next_epoch_itr(shuffle=True)
+        for sample in dev_itr:
+            sample = self._prepare_sample(sample)
+            assert sample is not None
+            loss, sample_size, logging_output = self.task.train_step(
+                                    sample, self.model, self.criterion, self.optimizer)
+            self.optimizer.save_dev_grad()
+            #self.optimizer.zero_grad()
+            break
+        self.zero_grad()
+        sim_list = []
+        for i, key in enumerate(self.task.dataset('train').datasets.keys()):
+            sample = self.task.dataset('train').get_sample_with_key(key)
+            sample = self._prepare_sample(sample)
+            # calculate sim
+            loss, sample_size, logging_output = self.task.train_step(
+                                    sample, self.model, self.criterion, self.optimizer)
+            sim = self.optimizer.get_grad_sim()
+            sim_list.append(sim)
+            self.zero_grad()
+
+        if self.args.data_actor == 'base':
+            feature = torch.ones(1, len(self.task.dataset('train').datasets.keys()))
+            grad_scale = torch.FloatTensor(sim_list).view(1, -1)
+            if self.cuda:
+                feature = feature.cuda()
+                grad_scale = grad_scale.cuda()
+            for _ in range(self.args.data_actor_optim_step):
+                a_logits = self.data_actor.forward(feature)
+                loss = -torch.nn.functional.log_softmax(a_logits, dim=-1)
+                loss = (loss * grad_scale).sum()
+                loss.backward()
+                self.data_optimizer.step()
+                self.data_optimizer.zero_grad()
+            with torch.no_grad():
+                a_logits = self.data_actor.forward(feature)
+                prob = torch.nn.functional.softmax(a_logits, dim=-1)
+                sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
+        # set sampling distribution
+        self.task.dataset('train').update_sampling_distribution(sim_list)
+
     def get_train_iterator(self, epoch, combine=True):
         """Return an EpochBatchIterator over the training set for a given epoch."""
         print('| loading train data for epoch {}'.format(epoch))
@@ -282,11 +416,18 @@ class Trainer(object):
                     return contextlib.ExitStack()  # dummy contextmanager
 
             try:
+                if self.args.data_actor == 'aveemb':
+                    score = self.data_actor(sample['net_input'], sample['target'])
+                    score = torch.exp(score)
+                    batch_score = score / score.sum()
+                else:
+                    batch_score = None
+
                 with maybe_no_sync():
                     # forward and backward
                     loss, sample_size, logging_output = self.task.train_step(
                         sample, self.model, self.criterion, self.optimizer,
-                        ignore_grad
+                        ignore_grad, batch_score=batch_score,
                     )
 
                 if not ignore_grad:

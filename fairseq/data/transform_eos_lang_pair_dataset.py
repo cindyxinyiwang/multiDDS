@@ -6,7 +6,7 @@
 
 from . import FairseqDataset
 from typing import Optional
-
+import numpy as np
 
 class TransformEosLangPairDataset(FairseqDataset):
     """A :class:`~fairseq.data.FairseqDataset` wrapper that transform bos on
@@ -31,12 +31,19 @@ class TransformEosLangPairDataset(FairseqDataset):
         new_src_eos: Optional[int] = None,
         tgt_bos: Optional[int] = None,
         new_tgt_bos: Optional[int] = None,
+        new_src_eos_list: Optional[list] = None,
+        new_src_eos_list_probs: Optional[list] = None,
+        split: Optional[str] = 'train',
     ):
         self.dataset = dataset
         self.src_eos = src_eos
         self.new_src_eos = new_src_eos
         self.tgt_bos = tgt_bos
         self.new_tgt_bos = new_tgt_bos
+
+        self.new_src_eos_list = new_src_eos_list
+        self.new_src_eos_list_probs = new_src_eos_list_probs
+        self.split = split
 
     def __getitem__(self, index):
         return self.dataset[index]
@@ -50,12 +57,20 @@ class TransformEosLangPairDataset(FairseqDataset):
         # TODO: support different padding direction
         if self.new_src_eos is not None:
             assert(samples['net_input']['src_tokens'][:, -1] != self.src_eos).sum() == 0
-            samples['net_input']['src_tokens'][:, -1] = self.new_src_eos
+            if self.new_src_eos_list is None:
+                samples['net_input']['src_tokens'][:, -1] = self.new_src_eos
+            else:
+                if self.split == 'train':
+                    new_src_eos_idx = np.random.choice(len(self.new_src_eos_list), samples['net_input']['src_tokens'].size(0), p=self.new_src_eos_list_probs)
+                    #samples['net_input']['src_tokens'][:, -1] = self.new_src_eos_list[new_src_eos_idx]
+                    for i in range(len(new_src_eos_idx)):
+                        samples['net_input']['src_tokens'][i, -1] = self.new_src_eos_list[new_src_eos_idx[i]]
+                else:
+                    samples['net_input']['src_tokens'][:, -1] = self.new_src_eos
 
         if self.new_tgt_bos is not None:
             assert (samples['net_input']['prev_output_tokens'][:, 0] != self.tgt_bos).sum() == 0
             samples['net_input']['prev_output_tokens'][:, 0] = self.new_tgt_bos
-
         return samples
 
     def num_tokens(self, index):

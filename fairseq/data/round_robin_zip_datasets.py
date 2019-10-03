@@ -108,3 +108,21 @@ class RoundRobinZipDatasets(FairseqDataset):
     def prefetch(self, indices):
         for key, dataset in self.datasets.items():
             dataset.prefetch([self._map_index(key, index) for index in indices])
+
+    def get_sample_with_key(self, key, num=16, max_count=1200):
+        """
+        Get some samples with a given key
+        """
+        dataset = self.datasets[key]
+        sample_indices = np.random.choice(np.arange(len(dataset)), size=num)
+        samples, count = [], 0
+        for i in sample_indices:
+            samples.append(dataset[i])
+            count += len(dataset[i])
+            if count >= max_count: break
+        
+        return OrderedDict([
+            (key, self.datasets[key].collater(samples))
+            ])
+
+

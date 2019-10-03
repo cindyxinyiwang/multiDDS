@@ -14,6 +14,7 @@ from fairseq.data import (
     LanguagePairDataset,
     RoundRobinZipDatasets,
     TransformEosLangPairDataset,
+    MultiCorpusSampledDataset,
 )
 from fairseq.models import FairseqMultiModel
 from fairseq.tasks.translation import load_langpair_dataset
@@ -91,10 +92,18 @@ class MultilingualTranslationTask(FairseqTask):
                                  'language token. (src/tgt)')
         parser.add_argument('--decoder-langtok', action='store_true',
                             help='replace beginning-of-sentence in target sentence with target language token')
+        parser.add_argument('--dataset-type', default="round_robin", type=str,
+                            help='[round_robin|multi]')
+        parser.add_argument('--sample-instance', action='store_true',
+                            help='whether to sample for each instance in a batch for mulitlingual_data')
+        parser.add_argument('--sample-tag-prob', default=-1, type=float,
+                            help='probability of using tags other than the language')
+
         # fmt: on
 
     def __init__(self, args, dicts, training):
         super().__init__(args)
+        self.dataset_type = args.dataset_type
         self.dicts = dicts
         self.training = training
         if training:
@@ -169,7 +178,8 @@ class MultilingualTranslationTask(FairseqTask):
         return _lang_token_index(self.dicts[tgt_lang], tgt_lang)
 
     def alter_dataset_langtok(self, lang_pair_dataset,
-                              src_eos=None, src_lang=None, tgt_eos=None, tgt_lang=None):
+                              src_eos=None, src_lang=None, tgt_eos=None, tgt_lang=None,
+                              tgt_langs=[], split='train'):
         if self.args.encoder_langtok is None and not self.args.decoder_langtok:
             return lang_pair_dataset
 
@@ -186,12 +196,25 @@ class MultilingualTranslationTask(FairseqTask):
         else:
             tgt_eos = None
 
+        if split == 'train' and tgt_lang in tgt_langs:
+            cur_tgt_idx = tgt_langs.index(tgt_lang)
+            p = self.args.sample_tag_prob / (len(tgt_langs)-1)
+            new_src_eos_list_probs = [p for _ in range(len(tgt_langs))]
+            new_src_eos_list_probs[cur_tgt_idx] = 1-self.args.sample_tag_prob
+            new_src_eos_list = [self.get_encoder_langtok(src_lang, t) for t in tgt_langs]
+        else:
+            new_src_eos_list = None
+            new_src_eos_list_probs = None
+
         return TransformEosLangPairDataset(
             lang_pair_dataset,
             src_eos=src_eos,
             new_src_eos=new_src_eos,
             tgt_bos=tgt_eos,
             new_tgt_bos=new_tgt_bos,
+            new_src_eos_list=new_src_eos_list,
+            new_src_eos_list_probs=new_src_eos_list_probs,
+            split=split,
         )
 
     def load_dataset(self, split, epoch=0, **kwargs):
@@ -201,6 +224,11 @@ class MultilingualTranslationTask(FairseqTask):
         assert len(paths) > 0
         data_path = paths[epoch % len(paths)]
 
+        tgt_langs = []
+        if self.args.sample_tag_prob > 0:
+            for lang_pair in self.lang_pairs:
+                src, tgt = lang_pair.split('-')
+                tgt_langs.append(tgt)
         def language_pair_dataset(lang_pair):
             src, tgt = lang_pair.split('-')
             langpair_dataset = load_langpair_dataset(
@@ -217,16 +245,27 @@ class MultilingualTranslationTask(FairseqTask):
                 src_eos=self.dicts[tgt].eos(),
                 src_lang=src,
                 tgt_lang=tgt,
+                tgt_langs=tgt_langs,
+                split=split,
             )
-
-        self.datasets[split] = RoundRobinZipDatasets(
-            OrderedDict([
-                (lang_pair, language_pair_dataset(lang_pair))
-                for lang_pair in self.lang_pairs
-            ]),
-            eval_key=None if self.training else "%s-%s" % (self.args.source_lang, self.args.target_lang),
-        )
-
+        
+        if self.dataset_type == 'round_robin' or split != 'train':
+            self.datasets[split] = RoundRobinZipDatasets(
+                OrderedDict([
+                    (lang_pair, language_pair_dataset(lang_pair))
+                    for lang_pair in self.lang_pairs
+                ]),
+                eval_key=None if self.training else "%s-%s" % (self.args.source_lang, self.args.target_lang),
+            )
+        elif self.dataset_type == 'multi':
+            self.datasets[split] =  MultiCorpusSampledDataset(
+                OrderedDict([
+                    (lang_pair, language_pair_dataset(lang_pair))
+                    for lang_pair in self.lang_pairs
+                ]),
+                sample_instance=self.args.sample_instance,
+                split=split,
+            )
     def build_dataset_for_inference(self, src_tokens, src_lengths):
         lang_pair = "%s-%s" % (self.args.source_lang, self.args.target_lang)
         return RoundRobinZipDatasets(
@@ -267,11 +306,11 @@ class MultilingualTranslationTask(FairseqTask):
             raise ValueError('MultilingualTranslationTask requires a FairseqMultiModel architecture')
         return model
 
-    def train_step(self, sample, model, criterion, optimizer, ignore_grad=False):
+    def train_step(self, sample, model, criterion, optimizer, ignore_grad=False, batch_score=None):
         model.train()
         agg_loss, agg_sample_size, agg_logging_output = 0., 0., {}
         for lang_pair in self.model_lang_pairs:
-            if sample[lang_pair] is None or len(sample[lang_pair]) == 0:
+            if lang_pair not in sample or sample[lang_pair] is None or len(sample[lang_pair]) == 0:
                 continue
             loss, sample_size, logging_output = criterion(model.models[lang_pair], sample[lang_pair])
             if ignore_grad:

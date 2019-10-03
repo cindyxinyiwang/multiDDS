@@ -195,7 +195,20 @@ def get_parser(desc, default_task='translation'):
                         help='path to a python module containing custom extensions (tasks and/or architectures)')
     parser.add_argument('--sde', action='store_true',
                         help='whether to use sde')
+    parser.add_argument('--update-language-sampling', type=int, default=-1,
+                        help='update language sampling every N step')
+    parser.add_argument('--data-actor', type=str, default=None,
+                        help='type of data actor [base|]')
+    parser.add_argument('--data-actor-lr', type=float, default=0.01,
+                        help='lr for optimizing data actor')
+    parser.add_argument('--data-actor-optim-step', type=int, default=1,
+                        help='number of steps to optimize data actor')
 
+
+    parser.add_argument('--data-actor-multilin', action='store_true',
+                        help='whether to multiling version of the actor')
+    parser.add_argument('--utility-type', type=str, default='ave',
+                        help='type of utility function [ave|min|median]')
     from fairseq.registry import REGISTRIES
     for registry_name, REGISTRY in REGISTRIES.items():
         parser.add_argument(

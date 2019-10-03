@@ -11,10 +11,9 @@ import numpy as np
 from . import FairseqDataset
 
 
-def uniform_sampler(x):
+def uniform_sampler(x, p=None):
     # Sample from uniform distribution
-    return np.random.choice(x, 1).item()
-
+    return np.random.choice(x, 1, p=p).item()
 
 class MultiCorpusSampledDataset(FairseqDataset):
     """
@@ -32,6 +31,8 @@ class MultiCorpusSampledDataset(FairseqDataset):
         self,
         datasets: Dict[str, FairseqDataset],
         sampling_func: Callable[[List], int] = None,
+        sample_instance = False,
+        split=None,
     ):
         super().__init__()
         assert isinstance(datasets, OrderedDict)
@@ -39,6 +40,9 @@ class MultiCorpusSampledDataset(FairseqDataset):
         if sampling_func is None:
             sampling_func = uniform_sampler
         self.sampling_func = sampling_func
+        self.p = None
+        self.sample_instance = sample_instance
+        self.split = split
 
         self.total_num_instances = 0
         for _, dataset in datasets.items():
@@ -93,6 +97,33 @@ class MultiCorpusSampledDataset(FairseqDataset):
                 for key, dataset in self.datasets.items()
             ]
         )
+    
+    def get_sample_with_key(self, key, num=16, max_count=1200):
+        """
+        Get some samples with a given key
+        """
+        dataset = self.datasets[key]
+        sample_indices = np.random.choice(np.arange(len(dataset)), size=num)
+        samples, count = [], 0
+        for i in sample_indices:
+            samples.append(dataset[i])
+            count += len(dataset[i])
+            if count >= max_count: break
+        
+        return OrderedDict([
+            (key, self.datasets[key].collater(samples))
+            ])
+
+    def update_sampling_distribution(self, logits):
+        print(logits)
+        for i, l in enumerate(logits):
+            if logits[i] < 0:
+                logits[i] = 0
+        if sum(logits) == 0:
+            logits = [0.1 for _ in range(len(logits))]
+        self.p = np.array(logits) / sum(logits)
+        print("Updating probs")
+        print(self.p)
 
     def collater(self, samples: List[Dict]):
         """
@@ -104,10 +135,21 @@ class MultiCorpusSampledDataset(FairseqDataset):
         """
         if len(samples) == 0:
             return None
-
-        selected_key = self.sampling_func(list(self.datasets.keys()))
-        selected_samples = [sample[selected_key] for sample in samples]
-        return self.datasets[selected_key].collater(selected_samples)
+        if self.sample_instance:
+            collated_samples = OrderedDict([(key, []) for key in self.datasets.keys()])
+            for sample in samples:
+                selected_key = self.sampling_func(list(self.datasets.keys()), self.p)
+                collated_samples[selected_key].append(sample[selected_key])
+            for key in collated_samples.keys():
+                if len(collated_samples[key]) > 0:
+                    collated_samples[key] = self.datasets[key].collater(collated_samples[key])
+            return collated_samples
+        else:
+            selected_key = self.sampling_func(list(self.datasets.keys()), self.p)
+            selected_samples = [sample[selected_key] for sample in samples]
+            return OrderedDict([
+                (selected_key, self.datasets[selected_key].collater(selected_samples))
+                ])
 
     def num_tokens(self, index: int):
         """
@@ -120,16 +162,25 @@ class MultiCorpusSampledDataset(FairseqDataset):
             for key, dataset in self.datasets.items()
         )
 
-    def size(self, index: int):
-        """
-        Return an example's size as a float or tuple. Here we return the max
-        across all underlying datasets. This value is used when filtering a
-        dataset with max-positions.
-        """
-        return max(
-            dataset.size(self._map_index_to_dataset(key, index))
+    #def size(self, index: int):
+    #    """
+    #    Return an example's size as a float or tuple. Here we return the max
+    #    across all underlying datasets. This value is used when filtering a
+    #    dataset with max-positions.
+    #    """
+    #    return max(
+    #        dataset.size(self._map_index_to_dataset(key, index))
+    #        for key, dataset in self.datasets.items()
+    #    )
+
+    def size(self, index):
+        """Return an example's size as a float or tuple. This value is used when
+        filtering a dataset with ``--max-positions``."""
+        return {
+            key: dataset.size(self._map_index_to_dataset(key, index))
             for key, dataset in self.datasets.items()
-        )
+        }
+
 
     @property
     def supports_prefetch(self):
