@@ -268,7 +268,7 @@ class Trainer(object):
         elif self.args.utility_type == 'min':
             sim_list = np.array(all_sim_list).min(axis=0).tolist()
         elif self.args.utility_type == 'median':
-            sim_list = np.array(all_sim_list).median(axis=0).tolist()
+            sim_list = np.median(np.array(all_sim_list), axis=0).tolist()
         if self.args.data_actor == 'base':
             feature = torch.ones(1, len(self.task.dataset('train').datasets.keys()))
             grad_scale = torch.FloatTensor(sim_list).view(1, -1)
