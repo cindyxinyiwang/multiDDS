@@ -205,10 +205,6 @@ def get_parser(desc, default_task='translation'):
                         help='number of steps to optimize data actor')
 
 
-    parser.add_argument('--data-actor-multilin', action='store_true',
-                        help='whether to multiling version of the actor')
-    parser.add_argument('--utility-type', type=str, default='ave',
-                        help='type of utility function [ave|min|median]')
     from fairseq.registry import REGISTRIES
     for registry_name, REGISTRY in REGISTRIES.items():
         parser.add_argument(

@@ -99,6 +99,12 @@ class MultilingualTranslationTask(FairseqTask):
         parser.add_argument('--sample-tag-prob', default=-1, type=float,
                             help='probability of using tags other than the language')
 
+        parser.add_argument('--data-actor-multilin', action='store_true',
+                            help='whether to multiling version of the actor')
+        parser.add_argument('--utility-type', type=str, default='ave',
+                            help='type of utility function [ave|min|median]')
+        parser.add_argument('--eval-lang-pairs', type=str, default=None,
+                            help='dev data keys for multilin actor')
         # fmt: on
 
     def __init__(self, args, dicts, training):
@@ -116,7 +122,7 @@ class MultilingualTranslationTask(FairseqTask):
         # optimize for certain languages we want to use a different subset. Thus
         # the eval_lang_pairs class variable is provided for classes that extend
         # this class.
-        self.eval_lang_pairs = self.lang_pairs
+        self.eval_lang_pairs = args.eval_lang_pairs
         # model_lang_pairs will be used to build encoder-decoder model pairs in
         # models.build_model(). This allows multitask type of sub-class can
         # build models other than the input lang_pairs
@@ -142,6 +148,10 @@ class MultilingualTranslationTask(FairseqTask):
         if args.lang_pairs is None:
             raise ValueError('--lang-pairs is required. List all the language pairs in the training objective.')
         args.lang_pairs = args.lang_pairs.split(',')
+        if args.eval_lang_pairs is not None:
+            args.eval_lang_pairs = args.eval_lang_pairs.split(',')
+        else:
+            args.eval_lang_pairs = args.lang_pairs
         sorted_langs = sorted(list({x for lang_pair in args.lang_pairs for x in lang_pair.split('-')}))
         if args.source_lang is not None or args.target_lang is not None:
             training = False
@@ -248,12 +258,15 @@ class MultilingualTranslationTask(FairseqTask):
                 tgt_langs=tgt_langs,
                 split=split,
             )
-        
+        if split == 'valid':
+            lang_pairs = self.eval_lang_pairs
+        else:
+            lang_pairs = self.lang_pairs
         if self.dataset_type == 'round_robin' or split != 'train':
             self.datasets[split] = RoundRobinZipDatasets(
                 OrderedDict([
                     (lang_pair, language_pair_dataset(lang_pair))
-                    for lang_pair in self.lang_pairs
+                    for lang_pair in lang_pairs
                 ]),
                 eval_key=None if self.training else "%s-%s" % (self.args.source_lang, self.args.target_lang),
             )
@@ -261,7 +274,7 @@ class MultilingualTranslationTask(FairseqTask):
             self.datasets[split] =  MultiCorpusSampledDataset(
                 OrderedDict([
                     (lang_pair, language_pair_dataset(lang_pair))
-                    for lang_pair in self.lang_pairs
+                    for lang_pair in lang_pairs
                 ]),
                 sample_instance=self.args.sample_instance,
                 split=split,

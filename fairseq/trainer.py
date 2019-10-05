@@ -249,6 +249,8 @@ class Trainer(object):
                                     valid_sample, self.model, self.criterion, self.optimizer)
             self.optimizer.save_dev_grad()
             self.zero_grad()
+            if self.cuda:
+                torch.cuda.empty_cache()
             sim_list = []
             for j, key in enumerate(self.task.dataset('train').datasets.keys()):
                 sample = self.task.dataset('train').get_sample_with_key(key)
@@ -261,6 +263,8 @@ class Trainer(object):
                 sim = self.optimizer.get_grad_sim()
                 sim_list.append(sim)
                 self.zero_grad()
+                if self.cuda:
+                    torch.cuda.empty_cache()
             all_sim_list.append(sim_list)
         # get rewards for languages based on different objectives
         if self.args.utility_type == 'ave':
