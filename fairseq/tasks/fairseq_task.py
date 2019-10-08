@@ -217,7 +217,7 @@ class FairseqTask(object):
                 no_repeat_ngram_size=getattr(args, 'no_repeat_ngram_size', 0),
             )
 
-    def train_step(self, sample, model, criterion, optimizer, ignore_grad=False, batch_score=None):
+    def train_step(self, sample, model, criterion, optimizer, ignore_grad=False, data_actor=None):
         """
         Do forward and backward, and return the loss as computed by *criterion*
         for the given *model* and *sample*.

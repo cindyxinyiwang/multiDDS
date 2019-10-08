@@ -116,7 +116,7 @@ class Adam(torch.optim.Optimizer):
                 state = self.state[p]
 
                 # State initialization
-                if len(state) == 0:
+                if len(state) == 0 or 'exp_avg' not in state:
                     state['step'] = 0
                     # Exponential moving average of gradient values
                     state['exp_avg'] = torch.zeros_like(p_data_fp32)

@@ -66,8 +66,10 @@ class Trainer(object):
             if self.cuda:
                 self.data_actor = self.data_actor.cuda()
             self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
-        elif self.args.data_actor == 'aveemb':
+        elif self.args.data_actor == 'ave_emb':
             self.data_actor = AveEmbActor(args, task)
+            if self.cuda:
+                self.data_actor = self.data_actor.cuda()
             self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
 
     def init_meters(self, args):
@@ -420,20 +422,22 @@ class Trainer(object):
                     return contextlib.ExitStack()  # dummy contextmanager
 
             try:
-                if self.args.data_actor == 'aveemb':
-                    score = self.data_actor(sample['net_input'], sample['target'])
-                    score = torch.exp(score)
-                    batch_score = score / score.sum()
-                else:
-                    batch_score = None
-
                 with maybe_no_sync():
                     # forward and backward
+                    if self.args.data_actor == 'ave_emb':
+                        self.optimizer.clone_param()
+                        data_actor = self.data_actor
+                        cached_loss = {}
+                        data_actor_out = {}
+                    else:
+                        data_actor = None
+                        cached_loss = None
+                        data_actor_out = None
                     loss, sample_size, logging_output = self.task.train_step(
                         sample, self.model, self.criterion, self.optimizer,
-                        ignore_grad, batch_score=batch_score,
+                        ignore_grad, data_actor=data_actor, 
+                        loss_copy=cached_loss, data_actor_out=data_actor_out,
                     )
-
                 if not ignore_grad:
                     logging_outputs.append(logging_output)
                     sample_sizes.append(sample_size)
@@ -546,6 +550,72 @@ class Trainer(object):
             self.meters['loss_scale'].update(self.optimizer.scaler.loss_scale)
 
         self.meters['train_wall'].stop()
+
+        if self.args.data_actor == 'ave_emb':
+            # update data actor
+            # get dev gradient
+            if self.args.data_actor_multilin:
+                for i, valid_key in enumerate(self.task.dataset('valid').datasets.keys()):
+                    valid_sample = self.task.dataset('valid').get_sample_with_key(valid_key)
+                    valid_sample = self._prepare_sample(valid_sample)
+                    _loss, _sample_size, _logging_output = self.task.train_step(
+                                            valid_sample, self.model, self.criterion, self.optimizer)
+                    if self.args.utility_type == 'ave':
+                        extras = (i==0)
+                    else:
+                        print("not supported yet")
+                        exit(0)
+                    self.optimizer.save_dev_grad_multi(utility=self.args.data_actor_multilin, extras=extras)
+                    self.zero_grad()
+                    if self.cuda:
+                        torch.cuda.empty_cache()
+                if self.args.utility_type == 'ave':
+                    extras = len(self.task.dataset('valid').datasets.keys())
+                self.optimizer.multi_dev_grad_finalize(utility=self.args.data_actor_multilin, extras=extras)
+            else:
+                dev_itr = self.task.get_batch_iterator(
+                    dataset=self.task.dataset('valid'),
+                    max_tokens=self.args.max_tokens_valid,
+                    max_sentences=self.args.max_sentences_valid,
+                    max_positions=utils.resolve_max_positions(
+                        self.task.max_positions(),
+                        self.get_model().max_positions(),
+                    ),
+                    ignore_invalid_inputs=self.args.skip_invalid_size_inputs_valid_test,
+                    required_batch_size_multiple=self.args.required_batch_size_multiple,
+                    seed=self.args.seed,
+                    num_shards=self.args.distributed_world_size,
+                    shard_id=self.args.distributed_rank,
+                    num_workers=self.args.num_workers,
+                ).next_epoch_itr(shuffle=True)
+                for valid_sample in dev_itr:
+                    valid_sample = self._prepare_sample(valid_sample)
+                    _loss, _sample_size, _logging_output = self.task.train_step(
+                                            valid_sample, self.model, self.criterion, self.optimizer)
+                    self.optimizer.save_dev_grad()
+                    break
+                self.zero_grad()
+
+            # get per example reward
+            with torch.no_grad():
+                self.optimizer.switch_param()
+                eta = 0.001
+                self.optimizer.add_grad(eta=eta)
+                cur_loss = {}
+                _loss, _sample_size, _logging_output = self.task.train_step(
+                    sample, self.model, self.criterion, self.optimizer,
+                    ignore_grad=True, data_actor=None, loss_copy=cur_loss,
+                )
+                self.optimizer.switch_param(clear_cache=True)
+            # optimize data actor
+            for k in cached_loss.keys():
+                reward = 1./eta * (cur_loss[k] - cached_loss[k])
+                loss = -(torch.log(1e-20 + data_actor_out[k]) * reward.data)
+                if sample_size > 0:
+                    loss.div_(sample_size)
+                loss.sum().backward()
+            self.data_optimizer.step()
+            self.data_optimizer.zero_grad()
 
         return logging_output
 

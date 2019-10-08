@@ -45,6 +45,27 @@ class FairseqOptimizer(object):
             for p in param_group['params']:
                 yield p
 
+    def save_dev_grad_multi(self, utility='ave', extras=None):
+        """Save dev set gradient"""
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                if p.grad is None: continue
+                state = self.optimizer.state[p]
+                if utility == 'ave':
+                    if extras == True:
+                        state['dev_grad'] = p.grad.data.clone()
+                    else:
+                        state['dev_grad'] += p.grad.data.clone()
+
+    def multi_dev_grad_finalize(self, utility='ave', extras=None):
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                if p.grad is None: continue
+                state = self.optimizer.state[p]
+                if utility == 'ave':
+                    state['dev_grad'].div_(extras)
+
+
     def save_dev_grad(self):
         """Save dev set gradient"""
         for group in self.optimizer.param_groups:
@@ -52,6 +73,33 @@ class FairseqOptimizer(object):
                 if p.grad is None: continue
                 state = self.optimizer.state[p]
                 state['dev_grad'] = p.grad.data.clone()
+
+    def clone_param(self):
+        """Save a copy of the params"""
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                state = self.optimizer.state[p]
+                state['param_copy'] = p.data.clone()
+
+    def add_grad(self, eta):
+        """add grad to current param"""
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                if p.grad is None: continue
+                state = self.optimizer.state[p]
+                p.data += state['dev_grad']*eta
+
+    def switch_param(self, clear_cache=False):
+        """Swap copy and the param values"""
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                state = self.optimizer.state[p]
+                cur_p = p.data
+                p.data = state['param_copy']
+                if clear_cache:
+                    state['param_copy'] = None 
+                else:
+                    state['param_copy'] = cur_p
 
     def get_grad_sim(self):
         """Get gradient similarity with dev set gradient"""

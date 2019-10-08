@@ -198,11 +198,13 @@ def get_parser(desc, default_task='translation'):
     parser.add_argument('--update-language-sampling', type=int, default=-1,
                         help='update language sampling every N step')
     parser.add_argument('--data-actor', type=str, default=None,
-                        help='type of data actor [base|]')
+                        help='type of data actor [base|ave_emb]')
     parser.add_argument('--data-actor-lr', type=float, default=0.01,
                         help='lr for optimizing data actor')
     parser.add_argument('--data-actor-optim-step', type=int, default=1,
                         help='number of steps to optimize data actor')
+    parser.add_argument('--data-actor-embed-dim', type=int, default=32,
+                        help='dimension of word embedding for data actor')
 
 
     from fairseq.registry import REGISTRIES

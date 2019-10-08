@@ -23,7 +23,7 @@ class FairseqCriterion(_Loss):
     def build_criterion(cls, args, task):
         return cls(args, task)
 
-    def forward(self, model, sample, reduce=True):
+    def forward(self, model, sample, reduce=True, data_score=None):
         """Compute the loss for the given sample.
 
         Returns a tuple with three elements:
