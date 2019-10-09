@@ -19,15 +19,18 @@ class BaseActor(torch.nn.Module):
 
 class AveEmbActor(torch.nn.Module):
     """Average Embedding actor"""
-    def __init__(self, args, task):
+    def __init__(self, args, task, emb=None, optimize_emb=True):
         super(AveEmbActor, self).__init__()
         assert task.source_dictionary == task.target_dictionary
         dictionary = task.source_dictionary
-        embed_dim = args.data_actor_embed_dim
-
-        num_embeddings = len(dictionary)
         self.padding_idx = dictionary.pad()
-        self.embed_tokens = Embedding(num_embeddings, embed_dim, self.padding_idx)
+        if emb is None:
+            embed_dim = args.data_actor_embed_dim
+            num_embeddings = len(dictionary)
+            self.embed_tokens = Embedding(num_embeddings, embed_dim, self.padding_idx)
+        else:
+            self.embed_tokens = emb
+            embed_dim = emb.weight.size(1)
 
         self.project_out = torch.nn.Linear(2*embed_dim, 1)
 

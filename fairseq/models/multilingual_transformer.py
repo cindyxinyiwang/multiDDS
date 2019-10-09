@@ -162,7 +162,9 @@ class MultilingualTransformerModel(FairseqMultiModel):
             encoders[lang_pair] = shared_encoder if shared_encoder is not None else get_encoder(src)
             decoders[lang_pair] = shared_decoder if shared_decoder is not None else get_decoder(tgt)
 
-        return MultilingualTransformerModel(encoders, decoders, args)
+        ret = MultilingualTransformerModel(encoders, decoders, args)
+        ret.embed_tokens = shared_encoder_embed_tokens
+        return ret 
 
     def load_state_dict(self, state_dict, strict=True):
         state_dict_subset = state_dict.copy()

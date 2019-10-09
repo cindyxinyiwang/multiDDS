@@ -67,10 +67,16 @@ class Trainer(object):
                 self.data_actor = self.data_actor.cuda()
             self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
         elif self.args.data_actor == 'ave_emb':
-            self.data_actor = AveEmbActor(args, task)
+            if self.args.data_actor_model_embed:
+                self.data_actor = AveEmbActor(args, task, emb=self._model.embed_tokens)
+            else:
+                self.data_actor = AveEmbActor(args, task)
             if self.cuda:
                 self.data_actor = self.data_actor.cuda()
-            self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
+            if not args.data_actor_embed_grad:
+                self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.project_out.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
+            else:
+                self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
 
     def init_meters(self, args):
         self.meters = OrderedDict()
@@ -381,7 +387,7 @@ class Trainer(object):
             epoch=epoch,
         )
 
-    def train_step(self, samples, dummy_batch=False, raise_oom=False):
+    def train_step(self, samples, dummy_batch=False, raise_oom=False, update_actor=True):
         """Do forward, backward and parameter update."""
         if self._dummy_batch is None:
             self._dummy_batch = samples[0]
@@ -424,7 +430,7 @@ class Trainer(object):
             try:
                 with maybe_no_sync():
                     # forward and backward
-                    if self.args.data_actor == 'ave_emb':
+                    if self.args.data_actor == 'ave_emb' and update_actor:
                         self.optimizer.clone_param()
                         data_actor = self.data_actor
                         cached_loss = {}
@@ -551,7 +557,7 @@ class Trainer(object):
 
         self.meters['train_wall'].stop()
 
-        if self.args.data_actor == 'ave_emb':
+        if self.args.data_actor == 'ave_emb' and update_actor:
             # update data actor
             # get dev gradient
             if self.args.data_actor_multilin:
