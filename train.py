@@ -120,12 +120,12 @@ def train(args, trainer, task, epoch_itr):
     valid_subsets = args.valid_subset.split(',')
     max_update = args.max_update or math.inf
     for i, samples in enumerate(progress, start=epoch_itr.iterations_in_epoch):
-        log_output = trainer.train_step(samples)
+        log_output = trainer.train_step(samples, update_actor=(i % args.update_language_sampling == 0))
         if log_output is None:
             continue
 
         # update sampling distribution
-        if args.update_language_sampling > 0 and i % args.update_language_sampling == 0:
+        if args.update_language_sampling > 0 and i % args.update_language_sampling == 0 and args.data_actor != 'ave_emb':
             if args.data_actor_multilin:
                 trainer.update_language_sampler_multilin(args)
             else:
