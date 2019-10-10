@@ -209,8 +209,8 @@ def get_parser(desc, default_task='translation'):
                         help='[0|1] whether to use model embedding')
     parser.add_argument('--data-actor-embed-grad', type=int, default=1,
                         help='[0|1] whether to optimize model embedding')
-
-
+    parser.add_argument('--out-score-type', type=str, default='sigmoid',
+                        help='[sigmoid|exp]')
 
     from fairseq.registry import REGISTRIES
     for registry_name, REGISTRY in REGISTRIES.items():

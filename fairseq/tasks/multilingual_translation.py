@@ -102,7 +102,7 @@ class MultilingualTranslationTask(FairseqTask):
         parser.add_argument('--data-actor-multilin', action='store_true',
                             help='whether to multiling version of the actor')
         parser.add_argument('--utility-type', type=str, default='ave',
-                            help='type of utility function [ave|min|median]')
+                            help='type of utility function [ave|min|median|vec_ave]')
         parser.add_argument('--eval-lang-pairs', type=str, default=None,
                             help='dev data keys for multilin actor')
         # fmt: on
@@ -330,14 +330,15 @@ class MultilingualTranslationTask(FairseqTask):
                 cur_sample = sample[lang_pair]
                 score = data_actor(cur_sample['net_input']['src_tokens'], cur_sample['target'])
                 data_actor_out[lang_pair] = score
-                #data_score[lang_pair] = torch.exp(score)
                 data_score[lang_pair] = score
-                sum_score += data_score[lang_pair].sum()
+                sum_score += score.sum()
                 example_size += cur_sample['nsentences']
             # normalize scores
             for lang_pair in self.model_lang_pairs:
                 if lang_pair not in sample or sample[lang_pair] is None or len(sample[lang_pair]) == 0:
                     continue
+                #if self.args.out_score_type == 'exp':
+                #    data_actor_out[lang_pair] = data_actor_out[lang_pair]/sum_score
                 data_score[lang_pair] = data_score[lang_pair]*example_size/sum_score
                 #print(data_score[lang_pair])
         else:

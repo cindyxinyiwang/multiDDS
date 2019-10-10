@@ -31,9 +31,9 @@ class AveEmbActor(torch.nn.Module):
         else:
             self.embed_tokens = emb
             embed_dim = emb.weight.size(1)
-
         self.project_out = torch.nn.Linear(2*embed_dim, 1)
-
+        self.out_score_type = args.out_score_type
+        
     def forward(self, src_tokens, trg_tokens):
         bsz, seqlen = src_tokens.size()
 
@@ -55,7 +55,10 @@ class AveEmbActor(torch.nn.Module):
 
         inp = torch.cat([x, y], dim=-1)
         # B x 1
-        score = torch.sigmoid(self.project_out(inp))
+        if self.out_score_type == 'sigmoid':
+            score = torch.sigmoid(self.project_out(inp))
+        elif self.out_score_type == 'exp':
+            score = torch.exp(self.project_out(inp))
         return score 
 
 def Embedding(num_embeddings, embedding_dim, padding_idx):

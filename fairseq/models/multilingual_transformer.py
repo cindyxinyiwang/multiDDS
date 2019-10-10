@@ -1,7 +1,6 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
 #
-# This source code is licensed under the MIT license found in the
-# LICENSE file in the root directory of this source tree.
+# This source code is licensed under the MIT license found in the # LICENSE file in the root directory of this source tree.
 
 from collections import OrderedDict
 
@@ -169,7 +168,7 @@ class MultilingualTransformerModel(FairseqMultiModel):
     def load_state_dict(self, state_dict, strict=True):
         state_dict_subset = state_dict.copy()
         for k, _ in state_dict.items():
-            assert k.startswith('models.')
+            #assert k.startswith('models.')
             lang_pair = k.split('.')[1]
             if lang_pair not in self.models:
                 del state_dict_subset[k]

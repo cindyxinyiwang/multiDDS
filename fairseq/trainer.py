@@ -255,10 +255,31 @@ class Trainer(object):
             valid_sample = self._prepare_sample(valid_sample)
             loss, sample_size, logging_output = self.task.train_step(
                                     valid_sample, self.model, self.criterion, self.optimizer)
-            self.optimizer.save_dev_grad()
+            if self.args.utility_type == 'vec_ave':
+                self.optimizer.save_dev_grad_multi(utility='ave', extras=(i==0))
+            else:
+                self.optimizer.save_dev_grad()
             self.zero_grad()
             if self.cuda:
                 torch.cuda.empty_cache()
+            if self.args.utility_type != 'vec_ave':
+                sim_list = []
+                for j, key in enumerate(self.task.dataset('train').datasets.keys()):
+                    sample = self.task.dataset('train').get_sample_with_key(key)
+                    sample = self._prepare_sample(sample)
+                    #if torch.cuda.is_available() and not self.args.cpu:
+                    #    sample = utils.move_to_cuda(sample)
+                    # calculate sim
+                    loss, sample_size, logging_output = self.task.train_step(
+                                            sample, self.model, self.criterion, self.optimizer)
+                    sim = self.optimizer.get_grad_sim()
+                    sim_list.append(sim)
+                    self.zero_grad()
+                    if self.cuda:
+                        torch.cuda.empty_cache()
+                all_sim_list.append(sim_list)
+        if self.args.utility_type == 'vec_ave':
+            self.optimizer.multi_dev_grad_finalize(utility='ave', extras=len(self.task.dataset('valid').datasets.keys()))
             sim_list = []
             for j, key in enumerate(self.task.dataset('train').datasets.keys()):
                 sample = self.task.dataset('train').get_sample_with_key(key)
@@ -273,7 +294,6 @@ class Trainer(object):
                 self.zero_grad()
                 if self.cuda:
                     torch.cuda.empty_cache()
-            all_sim_list.append(sim_list)
         # get rewards for languages based on different objectives
         if self.args.utility_type == 'ave':
             sim_list = np.mean(np.array(all_sim_list), axis=0).tolist()
@@ -616,9 +636,13 @@ class Trainer(object):
             # optimize data actor
             for k in cached_loss.keys():
                 reward = 1./eta * (cur_loss[k] - cached_loss[k])
-                loss = -(torch.log(1e-20 + data_actor_out[k]) * reward.data)
-                if sample_size > 0:
-                    loss.div_(sample_size)
+                if self.args.out_score_type == 'sigmoid':
+                    #loss = -(torch.log(1e-20 + data_actor_out[k]) * reward.data)
+                    loss = -(data_actor_out[k] * reward.data)
+                elif self.args.out_score_type == 'exp':
+                    loss = -(torch.log(1e-20 + data_actor_out[k]) * reward.data)
+                if cur_loss[k].size(0) > 0:
+                    loss.div_(cur_loss[k].size(0))
                 loss.sum().backward()
             self.data_optimizer.step()
             self.data_optimizer.zero_grad()
