@@ -5,6 +5,7 @@
 
 from collections import OrderedDict
 import os
+import numpy as np
 
 import torch
 
@@ -115,6 +116,8 @@ class MultilingualTranslationTask(FairseqTask):
 
         parser.add_argument('--no-dev', action='store_true',
                             help='not use dev set gradient')
+        parser.add_argument('--pretrain-data-actor', action='store_true',
+                            help='pretrain the data actor')
         # fmt: on
 
     def __init__(self, args, dicts, training):
@@ -127,6 +130,9 @@ class MultilingualTranslationTask(FairseqTask):
             args.source_lang, args.target_lang = args.lang_pairs[0].split('-')
         else:
             self.lang_pairs = ['{}-{}'.format(args.source_lang, args.target_lang)]
+        if args.lan_dists is not None:
+            args.lan_dists = np.array([float(t) for t in args.lan_dists.split(',')])
+            args.lan_dists = args.lan_dists/np.sum(args.lan_dists)
         # eval_lang_pairs for multilingual translation is usually all of the
         # lang_pairs. However for other multitask settings or when we want to
         # optimize for certain languages we want to use a different subset. Thus

@@ -77,6 +77,8 @@ class Trainer(object):
                 self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.project_out.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
             else:
                 self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
+        if self.args.pretrain_data_actor:
+            self.pretrain_data_actor(args)
 
     def init_meters(self, args):
         self.meters = OrderedDict()
@@ -388,6 +390,36 @@ class Trainer(object):
                 sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
         # set sampling distribution
         self.task.dataset('train').update_sampling_distribution(sim_list)
+    
+    def pretrain_data_actor(self, args):
+        """pretrain the distribution to sample languages """
+        if self.args.data_actor == 'base':
+            feature = torch.ones(1, len(args.lan_dists))
+            target = torch.FloatTensor(args.lan_dists).view(1, -1)
+            print(target)
+            for p in self.data_optimizer.param_groups:
+                p['lr'] = 0.001
+            
+            if self.cuda:
+                feature = feature.cuda()
+                target = grad_scale.cuda()
+            l = 100
+            while l > 0.00001:
+                a_logits = self.data_actor.forward(feature)
+                prob = torch.nn.functional.softmax(a_logits, dim=-1)
+                loss = torch.nn.functional.mse_loss(prob, target)
+                l = loss.item()
+                loss.backward()
+                self.data_optimizer.step()
+                self.data_optimizer.zero_grad()
+            with torch.no_grad():
+                a_logits = self.data_actor.forward(feature)
+                prob = torch.nn.functional.softmax(a_logits, dim=-1)
+                sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
+                print("pretrained_sim", sim_list)
+
+            for p in self.data_optimizer.param_groups:
+                p['lr'] = args.data_actor_lr
 
     def get_train_iterator(self, epoch, combine=True):
         """Return an EpochBatchIterator over the training set for a given epoch."""

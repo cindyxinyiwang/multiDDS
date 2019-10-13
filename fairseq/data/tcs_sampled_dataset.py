@@ -40,7 +40,7 @@ class TCSSampledDataset(FairseqDataset):
     def __init__(
         self,
         datasets: Dict[str, FairseqDataset],
-        lan_dists: str,
+        lan_dists: List,
         data_condition: str = 'target',
         sampling_func: Callable[[List], int] = None,
         sample_instance = False,
@@ -52,7 +52,8 @@ class TCSSampledDataset(FairseqDataset):
         if sampling_func is None:
             sampling_func = uniform_sampler
         self.sampling_func = sampling_func
-        self.p = np.array([float(x) for x in lan_dists.split(",")])
+        #self.p = np.array([float(x) for x in lan_dists.split(",")])
+        self.p = np.array(lan_dists)
         self.p = self.p / np.sum(self.p)
 
         assert len(self.p) == len(self.datasets)
