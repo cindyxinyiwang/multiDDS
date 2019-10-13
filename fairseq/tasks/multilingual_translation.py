@@ -15,6 +15,7 @@ from fairseq.data import (
     RoundRobinZipDatasets,
     TransformEosLangPairDataset,
     MultiCorpusSampledDataset,
+    TCSSampledDataset,
 )
 from fairseq.models import FairseqMultiModel
 from fairseq.tasks.translation import load_langpair_dataset
@@ -93,7 +94,13 @@ class MultilingualTranslationTask(FairseqTask):
         parser.add_argument('--decoder-langtok', action='store_true',
                             help='replace beginning-of-sentence in target sentence with target language token')
         parser.add_argument('--dataset-type', default="round_robin", type=str,
-                            help='[round_robin|multi]')
+                            help='[round_robin|multi|tcs]')
+        # TCS options
+        parser.add_argument('--lan-dists', default=None, type=str,
+                            help='comman separated numbers that indicate language distance')
+        parser.add_argument('--data-condition', default="target", type=str,
+                            help='[source|target] whether to condition on source or target')
+
         parser.add_argument('--sample-instance', action='store_true',
                             help='whether to sample for each instance in a batch for mulitlingual_data')
         parser.add_argument('--sample-tag-prob', default=-1, type=float,
@@ -105,6 +112,9 @@ class MultilingualTranslationTask(FairseqTask):
                             help='type of utility function [ave|min|median|vec_ave]')
         parser.add_argument('--eval-lang-pairs', type=str, default=None,
                             help='dev data keys for multilin actor')
+
+        parser.add_argument('--no-dev', action='store_true',
+                            help='not use dev set gradient')
         # fmt: on
 
     def __init__(self, args, dicts, training):
@@ -279,6 +289,18 @@ class MultilingualTranslationTask(FairseqTask):
                 sample_instance=self.args.sample_instance,
                 split=split,
             )
+        elif self.dataset_type == 'tcs':
+            self.datasets[split] =  TCSSampledDataset(
+                OrderedDict([
+                    (lang_pair, language_pair_dataset(lang_pair))
+                    for lang_pair in lang_pairs
+                ]),
+                lan_dists=self.args.lan_dists,
+                data_condition=self.args.data_condition,
+                sample_instance=self.args.sample_instance,
+                split=split,
+            )
+
     def build_dataset_for_inference(self, src_tokens, src_lengths):
         lang_pair = "%s-%s" % (self.args.source_lang, self.args.target_lang)
         return RoundRobinZipDatasets(
@@ -343,6 +365,7 @@ class MultilingualTranslationTask(FairseqTask):
                 #print(data_score[lang_pair])
         else:
             data_score = None
+        #print(sample)
         for lang_pair in self.model_lang_pairs:
             if lang_pair not in sample or sample[lang_pair] is None or len(sample[lang_pair]) == 0:
                 continue
@@ -403,7 +426,7 @@ class MultilingualTranslationTask(FairseqTask):
         return criterion.__class__.grad_denom(sample_sizes)
 
     def aggregate_logging_outputs(self, logging_outputs, criterion, logging_output_keys=None):
-        logging_output_keys = logging_output_keys or self.eval_lang_pairs
+        logging_output_keys = logging_output_keys or self.lang_pairs
         # aggregate logging outputs for each language pair
         agg_logging_outputs = {
             key: criterion.__class__.aggregate_logging_outputs([
@@ -411,7 +434,6 @@ class MultilingualTranslationTask(FairseqTask):
             ])
             for key in logging_output_keys
         }
-
         def sum_over_languages(key):
             return sum(logging_output[key] for logging_output in agg_logging_outputs.values())
 

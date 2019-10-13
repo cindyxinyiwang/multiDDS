@@ -331,30 +331,31 @@ class Trainer(object):
         self.criterion.train()
         self.zero_grad()
 
-        dev_itr = self.task.get_batch_iterator(
-            dataset=self.task.dataset('valid'),
-            max_tokens=args.max_tokens_valid,
-            max_sentences=args.max_sentences_valid,
-            max_positions=utils.resolve_max_positions(
-                self.task.max_positions(),
-                self.get_model().max_positions(),
-            ),
-            ignore_invalid_inputs=args.skip_invalid_size_inputs_valid_test,
-            required_batch_size_multiple=args.required_batch_size_multiple,
-            seed=args.seed,
-            num_shards=args.distributed_world_size,
-            shard_id=args.distributed_rank,
-            num_workers=args.num_workers,
-        ).next_epoch_itr(shuffle=True)
-        for sample in dev_itr:
-            sample = self._prepare_sample(sample)
-            assert sample is not None
-            loss, sample_size, logging_output = self.task.train_step(
-                                    sample, self.model, self.criterion, self.optimizer)
-            self.optimizer.save_dev_grad()
-            #self.optimizer.zero_grad()
-            break
-        self.zero_grad()
+        if not args.no_dev:
+            dev_itr = self.task.get_batch_iterator(
+                dataset=self.task.dataset('valid'),
+                max_tokens=args.max_tokens_valid,
+                max_sentences=args.max_sentences_valid,
+                max_positions=utils.resolve_max_positions(
+                    self.task.max_positions(),
+                    self.get_model().max_positions(),
+                ),
+                ignore_invalid_inputs=args.skip_invalid_size_inputs_valid_test,
+                required_batch_size_multiple=args.required_batch_size_multiple,
+                seed=args.seed,
+                num_shards=args.distributed_world_size,
+                shard_id=args.distributed_rank,
+                num_workers=args.num_workers,
+            ).next_epoch_itr(shuffle=True)
+            for sample in dev_itr:
+                sample = self._prepare_sample(sample)
+                assert sample is not None
+                loss, sample_size, logging_output = self.task.train_step(
+                                        sample, self.model, self.criterion, self.optimizer)
+                self.optimizer.save_dev_grad()
+                #self.optimizer.zero_grad()
+                break
+            self.zero_grad()
         sim_list = []
         for i, key in enumerate(self.task.dataset('train').datasets.keys()):
             sample = self.task.dataset('train').get_sample_with_key(key)
@@ -362,6 +363,8 @@ class Trainer(object):
             # calculate sim
             loss, sample_size, logging_output = self.task.train_step(
                                     sample, self.model, self.criterion, self.optimizer)
+            if args.no_dev and i == 0:
+                self.optimizer.save_dev_grad()
             sim = self.optimizer.get_grad_sim()
             sim_list.append(sim)
             self.zero_grad()
@@ -525,7 +528,8 @@ class Trainer(object):
             logging_outputs, self.get_criterion()
         )
         sample_size = self.task.grad_denom(sample_sizes, self.get_criterion())
-
+        #print(logging_output)
+        #print(logging_outputs)
         if not all(k in logging_output for k in ['ntokens', 'nsentences']):
             raise Exception((
                 'Please update the {}.aggregate_logging_outputs() method to '
