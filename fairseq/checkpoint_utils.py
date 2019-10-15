@@ -92,6 +92,7 @@ def save_checkpoint(args, trainer, epoch_itr, val_loss):
 
 def load_checkpoint(args, trainer):
     """Load a checkpoint and restore the training iterator."""
+
     # only one worker should attempt to create the required dir
     if args.distributed_rank == 0:
         os.makedirs(args.save_dir, exist_ok=True)
@@ -164,10 +165,14 @@ def load_model_ensemble_and_task(filenames, arg_overrides=None, task=None):
         if not os.path.exists(filename):
             raise IOError('Model file not found: {}'.format(filename))
         state = load_checkpoint_to_cpu(filename, arg_overrides)
-
         args = state['args']
-        if task is None:
-            task = tasks.setup_task(args)
+
+        if not hasattr(args, 'fix_norm'):
+            args.fix_norm = None
+        if not hasattr(args, 'scale_norm'):
+            args.scale_norm = False
+            if task is None:
+                task = tasks.setup_task(args)
 
         # build model for ensemble
         model = task.build_model(args)

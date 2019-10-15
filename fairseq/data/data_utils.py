@@ -113,7 +113,7 @@ def numpy_seed(seed, *addl_seeds):
         np.random.set_state(state)
 
 
-def collect_filtered(function, iterable, filtered):
+def collect_filtered(function, iterable, filtered, noskip=False):
     """
     Similar to :func:`filter` but collects filtered elements in ``filtered``.
 
@@ -124,13 +124,13 @@ def collect_filtered(function, iterable, filtered):
         filtered (list): list to store filtered elements
     """
     for el in iterable:
-        if function(el):
+        if function(el) or not noskip:
             yield el
         else:
             filtered.append(el)
 
 
-def _filter_by_size_dynamic(indices, size_fn, max_positions, raise_exception=False):
+def _filter_by_size_dynamic(indices, size_fn, max_positions, raise_exception=False, noskip=False):
     def check_size(idx):
         if isinstance(max_positions, float) or isinstance(max_positions, int):
             return size_fn(idx) <= max_positions
@@ -158,12 +158,14 @@ def _filter_by_size_dynamic(indices, size_fn, max_positions, raise_exception=Fal
                 for a, b in zip(size_fn(idx), max_positions)
             )
     ignored = []
-    itr = collect_filtered(check_size, indices, ignored)
+    itr = collect_filtered(check_size, indices, ignored, noskip=noskip)
+    if noskip:
+        ignored = []
     indices = np.fromiter(itr, dtype=np.int64, count=-1)
     return indices, ignored
 
 
-def filter_by_size(indices, dataset, max_positions, raise_exception=False):
+def filter_by_size(indices, dataset, max_positions, raise_exception=False, noskip=False):
     """
     Filter indices based on their size.
 
@@ -183,9 +185,9 @@ def filter_by_size(indices, dataset, max_positions, raise_exception=False):
             ignored = indices[dataset.sizes[0][indices] > max_positions].tolist()
             indices = indices[dataset.sizes[0][indices] <= max_positions]
         else:
-            indices, ignored = _filter_by_size_dynamic(indices, dataset.size, max_positions)
+            indices, ignored = _filter_by_size_dynamic(indices, dataset.size, max_positions, noskip=noskip)
     else:
-        indices, ignored = _filter_by_size_dynamic(indices, dataset.size, max_positions)
+        indices, ignored = _filter_by_size_dynamic(indices, dataset.size, max_positions, noskip=noskip)
 
     if len(ignored) > 0 and raise_exception:
         raise Exception((

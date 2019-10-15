@@ -269,8 +269,6 @@ class Trainer(object):
                 for j, key in enumerate(self.task.dataset('train').datasets.keys()):
                     sample = self.task.dataset('train').get_sample_with_key(key)
                     sample = self._prepare_sample(sample)
-                    #if torch.cuda.is_available() and not self.args.cpu:
-                    #    sample = utils.move_to_cuda(sample)
                     # calculate sim
                     loss, sample_size, logging_output = self.task.train_step(
                                             sample, self.model, self.criterion, self.optimizer)
