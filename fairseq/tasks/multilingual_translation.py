@@ -131,7 +131,7 @@ class MultilingualTranslationTask(FairseqTask):
         else:
             self.lang_pairs = ['{}-{}'.format(args.source_lang, args.target_lang)]
         if args.lan_dists is not None:
-            args.lan_dists = np.array([float(t) for t in args.lan_dists.split(',')])
+            args.lan_dists = np.array([np.exp(float(t)/1000) for t in args.lan_dists.split(',')])
             args.lan_dists = args.lan_dists/np.sum(args.lan_dists)
         # eval_lang_pairs for multilingual translation is usually all of the
         # lang_pairs. However for other multitask settings or when we want to

@@ -12,7 +12,9 @@ from . import FairseqDataset
 
 
 def uniform_sampler(x, sample, p=None):
-    # Sample from uniform distribution
+    #none_mask = [True if s is None else False for s in sample.values()]
+    #prob = np.where(np.array(none_mask), 0, p) 
+    #prob = prob / prob.sum()
     prob, s = [], 0
     for i, d in enumerate(sample.values()):
         if d is None:
@@ -21,8 +23,6 @@ def uniform_sampler(x, sample, p=None):
             prob.append(p[i])
             s += p[i]
     prob = [i/s for i in prob]
-    #print(sample)
-    #print(prob)
     return np.random.choice(x, 1, p=prob).item()
 
 class TCSSampledDataset(FairseqDataset):
@@ -161,14 +161,21 @@ class TCSSampledDataset(FairseqDataset):
         if len(samples) == 0:
             return None
         collated_samples = OrderedDict([(key, []) for key in self.datasets.keys()])
-        for sample in samples:
+        #none_mask = []
+        #for sample in samples:
+        #    none_mask.append(np.array(sample.values())==None)
+        #none_mask = torch.LongTensor(none_mask)
+        #probs = torch.LongTensor(self.p).view(1, -1).repeat(len(samples), 1)
+        #probs.masked_fill_(none_mask, 0)
+        #probs = probs / probs.sum(dim=-1, keepdim=True)
+        #selected_keys = torch.Categorical(probs)
+        for i, sample in enumerate(samples):
             selected_key = self.sampling_func(list(self.datasets.keys()), sample, self.p)
+            #selected_key = self.datasets.keys()[selected_keys[i].item()]
             collated_samples[selected_key].append(sample[selected_key])
-        #print(collated_samples)
         for key in collated_samples.keys():
             if len(collated_samples[key]) > 0:
                 collated_samples[key] = self.datasets[key].collater(collated_samples[key])
-        #print(collated_samples)
         return collated_samples
 
     def num_tokens(self, index: int):

@@ -402,7 +402,7 @@ class Trainer(object):
             
             if self.cuda:
                 feature = feature.cuda()
-                target = grad_scale.cuda()
+                target = target.cuda()
             l = 100
             while l > 0.00001:
                 a_logits = self.data_actor.forward(feature)
