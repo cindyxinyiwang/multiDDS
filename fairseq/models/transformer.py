@@ -145,7 +145,7 @@ class TransformerModel(FairseqEncoderDecoderModel):
             if sde:
                 emb = SDEembedding(char_vsize=num_embeddings, d_vec=embed_dim, padding_idx=padding_idx)
             else:
-                emb = Embedding(num_embeddings, embed_dim, padding_idx)
+                emb = Embedding(num_embeddings, embed_dim, padding_idx, fix_norm=args.fix_norm)
             # if provided, load from preloaded dictionaries
             if path:
                 embed_dict = utils.parse_embedding(path)
@@ -248,6 +248,7 @@ class TransformerEncoder(FairseqEncoder):
                   padding elements of shape `(batch, src_len)`
         """
         # embed tokens and positions
+        #embed_tokens = torch.nn.functional.normalize(self.embed_tokens, dim=-1) if self.args.fix_norm else self.embed_tokens
         x = self.embed_scale * self.embed_tokens(src_tokens)
 
         # compute padding mask
@@ -535,9 +536,13 @@ class TransformerDecoder(FairseqIncrementalDecoder):
         return state_dict
 
 
-def Embedding(num_embeddings, embedding_dim, padding_idx):
-    m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
-    nn.init.normal_(m.weight, mean=0, std=embedding_dim ** -0.5)
+def Embedding(num_embeddings, embedding_dim, padding_idx, fix_norm=None):
+    m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx, max_norm=fix_norm)
+    if fix_norm is not None:
+        d = 0.01
+        nn.init.uniform_(m.weight, a=-d, b=d)
+    else:
+        nn.init.normal_(m.weight, mean=0, std=embedding_dim ** -0.5)
     nn.init.constant_(m.weight[padding_idx], 0)
     return m
 

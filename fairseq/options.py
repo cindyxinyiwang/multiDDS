@@ -200,6 +200,8 @@ def get_parser(desc, default_task='translation'):
 
     parser.add_argument('--scale-norm', action='store_true',
                         help='whether to use scaled norm')
+    parser.add_argument('--fix-norm', type=float, default=None,
+                        help='whether to use fixed norm at output embedding')
 
     parser.add_argument('--data-actor', type=str, default=None,
                         help='type of data actor [base|ave_emb]')
