@@ -222,8 +222,13 @@ class TransformerEncoder(FairseqEncoder):
             for i in range(args.encoder_layers)
         ])
 
+        if args.scale_norm:
+            scale = embed_dim**0.5    
+        else:
+            scale = None
+
         if args.encoder_normalize_before:
-            self.layer_norm = LayerNorm(embed_dim)
+            self.layer_norm = LayerNorm(embed_dim, scale=scale)
         else:
             self.layer_norm = None
 
@@ -387,9 +392,14 @@ class TransformerDecoder(FairseqIncrementalDecoder):
         elif not self.share_input_output_embed:
             self.embed_out = nn.Parameter(torch.Tensor(len(dictionary), self.output_embed_dim))
             nn.init.normal_(self.embed_out, mean=0, std=self.output_embed_dim ** -0.5)
+        
+        if args.scale_norm:
+            scale = embed_dim**0.5    
+        else:
+            scale = None
 
         if args.decoder_normalize_before and not getattr(args, 'no_decoder_final_norm', False):
-            self.layer_norm = LayerNorm(embed_dim)
+            self.layer_norm = LayerNorm(embed_dim, scale=scale)
         else:
             self.layer_norm = None
 

@@ -31,7 +31,11 @@ class TransformerEncoderLayer(nn.Module):
             self.embed_dim, args.encoder_attention_heads,
             dropout=args.attention_dropout, self_attention=True
         )
-        self.self_attn_layer_norm = LayerNorm(self.embed_dim)
+        if args.scale_norm:
+            scale = self.embed_dim**0.5    
+        else:
+            scale = None    
+        self.self_attn_layer_norm = LayerNorm(self.embed_dim, scale=scale)
         self.dropout = args.dropout
         self.activation_fn = utils.get_activation_fn(
             activation=getattr(args, 'activation_fn', 'relu')
@@ -43,7 +47,7 @@ class TransformerEncoderLayer(nn.Module):
         self.normalize_before = args.encoder_normalize_before
         self.fc1 = Linear(self.embed_dim, args.encoder_ffn_embed_dim)
         self.fc2 = Linear(args.encoder_ffn_embed_dim, self.embed_dim)
-        self.final_layer_norm = LayerNorm(self.embed_dim)
+        self.final_layer_norm = LayerNorm(self.embed_dim, scale=scale)
 
     def upgrade_state_dict_named(self, state_dict, name):
         """
@@ -134,6 +138,10 @@ class TransformerDecoderLayer(nn.Module):
     def __init__(self, args, no_encoder_attn=False, add_bias_kv=False, add_zero_attn=False):
         super().__init__()
         self.embed_dim = args.decoder_embed_dim
+        if args.scale_norm:
+            scale = self.embed_dim**0.5    
+        else:
+            scale = None
         self.self_attn = MultiheadAttention(
             embed_dim=self.embed_dim,
             num_heads=args.decoder_attention_heads,
@@ -156,7 +164,7 @@ class TransformerDecoderLayer(nn.Module):
         # char_inputs can be used to determint this.
         # TODO  remove this once we update apex with the fix
         export = getattr(args, 'char_inputs', False)
-        self.self_attn_layer_norm = LayerNorm(self.embed_dim, export=export)
+        self.self_attn_layer_norm = LayerNorm(self.embed_dim, export=export, scale=scale)
 
         if no_encoder_attn:
             self.encoder_attn = None
