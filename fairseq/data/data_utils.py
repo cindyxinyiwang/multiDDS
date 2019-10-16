@@ -124,7 +124,7 @@ def collect_filtered(function, iterable, filtered, noskip=False):
         filtered (list): list to store filtered elements
     """
     for el in iterable:
-        if function(el) or not noskip:
+        if function(el) or noskip:
             yield el
         else:
             filtered.append(el)

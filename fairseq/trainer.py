@@ -267,16 +267,19 @@ class Trainer(object):
             if self.args.utility_type != 'vec_ave':
                 sim_list = []
                 for j, key in enumerate(self.task.dataset('train').datasets.keys()):
-                    sample = self.task.dataset('train').get_sample_with_key(key)
-                    sample = self._prepare_sample(sample)
-                    # calculate sim
-                    loss, sample_size, logging_output = self.task.train_step(
-                                            sample, self.model, self.criterion, self.optimizer)
-                    sim = self.optimizer.get_grad_sim()
-                    sim_list.append(sim)
-                    self.zero_grad()
-                    if self.cuda:
-                        torch.cuda.empty_cache()
+                    if not args.no_dev and key == valid_key:
+                        sim_list.append(1.0)
+                    else:
+                        sample = self.task.dataset('train').get_sample_with_key(key)
+                        sample = self._prepare_sample(sample)
+                        # calculate sim
+                        loss, sample_size, logging_output = self.task.train_step(
+                                                sample, self.model, self.criterion, self.optimizer)
+                        sim = self.optimizer.get_grad_sim()
+                        sim_list.append(sim)
+                        self.zero_grad()
+                        if self.cuda:
+                            torch.cuda.empty_cache()
                 all_sim_list.append(sim_list)
         if self.args.utility_type == 'vec_ave':
             self.optimizer.multi_dev_grad_finalize(utility='ave', extras=len(self.task.dataset('valid').datasets.keys()))

@@ -178,12 +178,12 @@ class TransformerDecoderLayer(nn.Module):
                 dropout=args.attention_dropout,
                 encoder_decoder_attention=True,
             )
-            self.encoder_attn_layer_norm = LayerNorm(self.embed_dim, export=export)
+            self.encoder_attn_layer_norm = LayerNorm(self.embed_dim, export=export, scale=scale)
 
         self.fc1 = Linear(self.embed_dim, args.decoder_ffn_embed_dim)
         self.fc2 = Linear(args.decoder_ffn_embed_dim, self.embed_dim)
 
-        self.final_layer_norm = LayerNorm(self.embed_dim, export=export)
+        self.final_layer_norm = LayerNorm(self.embed_dim, export=export, scale=scale)
         self.need_attn = True
 
         self.onnx_trace = False
