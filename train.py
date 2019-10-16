@@ -218,6 +218,7 @@ def validate(args, trainer, task, epoch_itr, subsets):
             num_shards=args.distributed_world_size,
             shard_id=args.distributed_rank,
             num_workers=args.num_workers,
+            noskip=True,
         ).next_epoch_itr(shuffle=False)
         progress = progress_bar.build_progress_bar(
             args, itr, epoch_itr.epoch,
