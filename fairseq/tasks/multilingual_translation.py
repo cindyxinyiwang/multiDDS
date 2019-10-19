@@ -243,7 +243,7 @@ class MultilingualTranslationTask(FairseqTask):
             split=split,
         )
 
-    def load_dataset(self, split, epoch=0, **kwargs):
+    def load_dataset(self, split, epoch=0, source_lang=None, target_lang=None, **kwargs):
         """Load a dataset split."""
 
         paths = self.args.data.split(':')
@@ -278,13 +278,22 @@ class MultilingualTranslationTask(FairseqTask):
             lang_pairs = self.eval_lang_pairs
         else:
             lang_pairs = self.lang_pairs
+
         if self.dataset_type == 'round_robin' or split != 'train':
+            if source_lang is not None and target_lang is not None:
+                training = False
+            else:
+                training = self.training
+            if source_lang is None:
+                source_lang = self.args.source_lang
+            if target_lang is None:
+                target_lang = self.args.target_lang
             self.datasets[split] = RoundRobinZipDatasets(
                 OrderedDict([
                     (lang_pair, language_pair_dataset(lang_pair))
                     for lang_pair in lang_pairs
                 ]),
-                eval_key=None if self.training else "%s-%s" % (self.args.source_lang, self.args.target_lang),
+                eval_key=None if training else "%s-%s" % (source_lang, target_lang),
             )
         elif self.dataset_type == 'multi':
             self.datasets[split] =  MultiCorpusSampledDataset(

@@ -77,6 +77,10 @@ class Trainer(object):
                 self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.project_out.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
             else:
                 self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
+        else:
+            self.data_actor = None
+            self.data_optimizer = None
+
         if self.args.pretrain_data_actor:
             self.pretrain_data_actor(args)
 
@@ -172,7 +176,7 @@ class Trainer(object):
             checkpoint_utils.save_state(
                 filename, self.args, self.get_model().state_dict(), self.get_criterion(),
                 self.optimizer, self.lr_scheduler, self.get_num_updates(),
-                self._optim_history, extra_state,
+                self._optim_history, extra_state, self.data_actor.state_dict(), self.data_optimizer.state_dict(),
             )
 
     def load_checkpoint(
@@ -182,6 +186,7 @@ class Trainer(object):
         reset_lr_scheduler=False,
         optimizer_overrides=None,
         reset_meters=False,
+        data_actor_filename=None,
     ):
         """Load all training state from a checkpoint file."""
         extra_state, self._optim_history, last_optim_state = None, [], None
@@ -203,6 +208,11 @@ class Trainer(object):
             extra_state = state['extra_state']
             self._optim_history = state['optimizer_history']
             last_optim_state = state.get('last_optimizer_state', None)
+
+            if 'data_actor' in state and state['data_actor']:
+                self.data_actor.load_state_dict(state['data_actor'])
+            if 'data_optimizer' in state and state['data_optimizer']:
+                self.data_optimizer.load_state_dict(state['data_optimizer'])
 
         if last_optim_state is not None and not reset_optimizer:
             # rebuild optimizer after loading model, since params may have changed
@@ -736,7 +746,6 @@ class Trainer(object):
         sample_size = self.task.grad_denom(
             sample_size, self.get_criterion()
         )
-
         # update meters for validation
         ntokens = logging_output.get('ntokens', 0)
         self.meters['valid_loss'].update(logging_output.get('loss', 0), sample_size)
