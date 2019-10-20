@@ -77,13 +77,18 @@ def main(args, init_distributed=False):
     train_meter = StopwatchMeter()
     train_meter.start()
     valid_subsets = args.valid_subset.split(',')
+    if args.eval_bleu:
+        generator = task.build_generator(args)
+        args.maximize_best_checkpoint_metric = True
+    else:
+        generator = None
     while lr > args.min_lr and epoch_itr.epoch < max_epoch and trainer.get_num_updates() < max_update:
         # train for one epoch
-        train(args, trainer, task, epoch_itr)
+        train(args, trainer, task, epoch_itr, generator)
         #trainer.update_language_sampler(args)
 
         if not args.disable_validation and epoch_itr.epoch % args.validate_interval == 0:
-            valid_losses = validate(args, trainer, task, epoch_itr, valid_subsets)
+            valid_losses = validate(args, trainer, task, epoch_itr, valid_subsets, generator)
         else:
             valid_losses = [None]
 
@@ -101,7 +106,7 @@ def main(args, init_distributed=False):
     print('| done training in {:.1f} seconds'.format(train_meter.sum))
 
 
-def train(args, trainer, task, epoch_itr):
+def train(args, trainer, task, epoch_itr, generator=None):
     """Train the model for one epoch."""
     # Update parameters every N batches
     update_freq = args.update_freq[epoch_itr.epoch - 1] \
@@ -154,7 +159,7 @@ def train(args, trainer, task, epoch_itr):
             and num_updates % args.save_interval_updates == 0
             and num_updates > 0
         ):
-            valid_losses = validate(args, trainer, task, epoch_itr, valid_subsets)
+            valid_losses = validate(args, trainer, task, epoch_itr, valid_subsets, generator)
             checkpoint_utils.save_checkpoint(args, trainer, epoch_itr, valid_losses[0])
 
         if num_updates >= max_update:
@@ -200,10 +205,11 @@ def get_training_stats(trainer):
     return stats
 
 
-def validate(args, trainer, task, epoch_itr, subsets):
+def validate(args, trainer, task, epoch_itr, subsets, generator=None):
     """Evaluate the model on the validation set(s) and return the losses."""
     valid_losses = []
-    #bleus = validate_translation(args, trainer, task, epoch_itr)
+    if args.eval_bleu:
+        bleus = validate_translation(args, trainer, task, epoch_itr, generator)
     for subset in subsets:
         # Initialize data iterator
         itr = task.get_batch_iterator(
@@ -234,8 +240,9 @@ def validate(args, trainer, task, epoch_itr, subsets):
             if meter is not None:
                 meter.reset()
         extra_meters = collections.defaultdict(lambda: AverageMeter())
-        #for k, v in bleus.items():
-        #    extra_meters[k + ":bleu"].update(v)
+        if args.eval_bleu:
+            for k, v in bleus.items():
+                extra_meters[k + ":bleu"].update(v)
 
         for sample in progress:
             log_output = trainer.valid_step(sample)
@@ -257,10 +264,12 @@ def validate(args, trainer, task, epoch_itr, subsets):
             else stats[args.best_checkpoint_metric]
         )
 
-    return valid_losses
+    if args.eval_bleu:
+        return [sum(bleus.values())]
+    else:
+        return valid_losses
 
-def validate_translation(args, trainer, task, epoch_itr):
-    generator = task.build_generator(args)
+def validate_translation(args, trainer, task, epoch_itr, generator):
     src_dict = task.source_dictionary
     tgt_dict = task.target_dictionary
     models = [trainer.get_model()]

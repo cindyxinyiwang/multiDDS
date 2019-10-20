@@ -173,10 +173,17 @@ class Trainer(object):
         """Save all training state in a checkpoint file."""
         if distributed_utils.is_master(self.args):  # only save one checkpoint
             extra_state['train_meters'] = self.meters
+            if self.data_actor is None:
+                data_actor_state = None
+                data_optimizer_state = None
+            else:
+                data_actor_state = self.data_actor.state_dict()
+                data_optimizer_state = self.data_optimizer.state_dict()
+
             checkpoint_utils.save_state(
                 filename, self.args, self.get_model().state_dict(), self.get_criterion(),
                 self.optimizer, self.lr_scheduler, self.get_num_updates(),
-                self._optim_history, extra_state, self.data_actor.state_dict(), self.data_optimizer.state_dict(),
+                self._optim_history, extra_state, data_actor_state, data_optimizer_state,
             )
 
     def load_checkpoint(
@@ -190,64 +197,70 @@ class Trainer(object):
     ):
         """Load all training state from a checkpoint file."""
         extra_state, self._optim_history, last_optim_state = None, [], None
-
-        if os.path.exists(filename):
-            state = checkpoint_utils.load_checkpoint_to_cpu(filename)
-
-            # load model parameters
-            try:
-                self.get_model().load_state_dict(state['model'], strict=True)
-                if utils.has_parameters(self.get_criterion()):
-                    self.get_criterion().load_state_dict(state['criterion'], strict=True)
-            except Exception:
-                raise Exception(
-                    'Cannot load model parameters from checkpoint {}; '
-                    'please ensure that the architectures match.'.format(filename)
-                )
-
-            extra_state = state['extra_state']
-            self._optim_history = state['optimizer_history']
-            last_optim_state = state.get('last_optimizer_state', None)
-
-            if 'data_actor' in state and state['data_actor']:
-                self.data_actor.load_state_dict(state['data_actor'])
-            if 'data_optimizer' in state and state['data_optimizer']:
-                self.data_optimizer.load_state_dict(state['data_optimizer'])
-
-        if last_optim_state is not None and not reset_optimizer:
-            # rebuild optimizer after loading model, since params may have changed
-            self._build_optimizer()
-
-            # only reload optimizer and lr_scheduler if they match
-            last_optim = self._optim_history[-1]
-            assert last_optim['criterion_name'] == self.get_criterion().__class__.__name__, \
-                'Criterion does not match; please reset the optimizer (--reset-optimizer).'
-            assert last_optim['optimizer_name'] == self.optimizer.__class__.__name__, \
-                'Optimizer does not match; please reset the optimizer (--reset-optimizer).'
-
-            if not reset_lr_scheduler:
-                self.lr_scheduler.load_state_dict(last_optim['lr_scheduler_state'])
-            self.optimizer.load_state_dict(last_optim_state, optimizer_overrides)
-
-            self.set_num_updates(last_optim['num_updates'])
-
-        if extra_state is not None:
-            epoch = extra_state['train_iterator']['epoch']
-            print('| loaded checkpoint {} (epoch {} @ {} updates)'.format(
-                filename, epoch, self.get_num_updates()))
-
-            self.lr_step(epoch)
-
-            if 'train_meters' in extra_state and not reset_meters:
-                self.meters.update(extra_state['train_meters'])
-                del extra_state['train_meters']
-
-                # reset TimeMeters, since their start times don't make sense anymore
-                for meter in self.meters.values():
-                    if isinstance(meter, TimeMeter):
-                        meter.reset()
+        if self.args.only_load_data_actor:
+            if os.path.exists(filename):
+                state = checkpoint_utils.load_checkpoint_to_cpu(filename)
+                if 'data_actor' in state and state['data_actor']:
+                    print("loading data actor state only...")
+                    self.data_actor.load_state_dict(state['data_actor'])
         else:
-            print('| no existing checkpoint found {}'.format(filename))
+            if os.path.exists(filename):
+                state = checkpoint_utils.load_checkpoint_to_cpu(filename)
+
+                # load model parameters
+                try:
+                    self.get_model().load_state_dict(state['model'], strict=True)
+                    if utils.has_parameters(self.get_criterion()):
+                        self.get_criterion().load_state_dict(state['criterion'], strict=True)
+                except Exception:
+                    raise Exception(
+                        'Cannot load model parameters from checkpoint {}; '
+                        'please ensure that the architectures match.'.format(filename)
+                    )
+
+                extra_state = state['extra_state']
+                self._optim_history = state['optimizer_history']
+                last_optim_state = state.get('last_optimizer_state', None)
+
+                if 'data_actor' in state and state['data_actor']:
+                    self.data_actor.load_state_dict(state['data_actor'])
+                if 'data_optimizer' in state and state['data_optimizer']:
+                    self.data_optimizer.load_state_dict(state['data_optimizer'])
+
+            if last_optim_state is not None and not reset_optimizer:
+                # rebuild optimizer after loading model, since params may have changed
+                self._build_optimizer()
+
+                # only reload optimizer and lr_scheduler if they match
+                last_optim = self._optim_history[-1]
+                assert last_optim['criterion_name'] == self.get_criterion().__class__.__name__, \
+                    'Criterion does not match; please reset the optimizer (--reset-optimizer).'
+                assert last_optim['optimizer_name'] == self.optimizer.__class__.__name__, \
+                    'Optimizer does not match; please reset the optimizer (--reset-optimizer).'
+
+                if not reset_lr_scheduler:
+                    self.lr_scheduler.load_state_dict(last_optim['lr_scheduler_state'])
+                self.optimizer.load_state_dict(last_optim_state, optimizer_overrides)
+
+                self.set_num_updates(last_optim['num_updates'])
+
+            if extra_state is not None:
+                epoch = extra_state['train_iterator']['epoch']
+                print('| loaded checkpoint {} (epoch {} @ {} updates)'.format(
+                    filename, epoch, self.get_num_updates()))
+
+                self.lr_step(epoch)
+
+                if 'train_meters' in extra_state and not reset_meters:
+                    self.meters.update(extra_state['train_meters'])
+                    del extra_state['train_meters']
+
+                    # reset TimeMeters, since their start times don't make sense anymore
+                    for meter in self.meters.values():
+                        if isinstance(meter, TimeMeter):
+                            meter.reset()
+            else:
+                print('| no existing checkpoint found {}'.format(filename))
 
         return extra_state
 
