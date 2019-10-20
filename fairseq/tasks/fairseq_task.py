@@ -101,7 +101,7 @@ class FairseqTask(object):
     def get_batch_iterator(
         self, dataset, max_tokens=None, max_sentences=None, max_positions=None,
         ignore_invalid_inputs=False, required_batch_size_multiple=1,
-        seed=1, num_shards=1, shard_id=0, num_workers=0, epoch=0, noskip=False,
+        seed=1, num_shards=1, shard_id=0, num_workers=0, epoch=0, noskip=False, source_lang=None, target_lang=None,
     ):
         """
         Get an iterator that yields batches of data from the given dataset.
