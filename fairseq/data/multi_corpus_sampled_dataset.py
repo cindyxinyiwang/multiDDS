@@ -33,6 +33,7 @@ class MultiCorpusSampledDataset(FairseqDataset):
         sampling_func: Callable[[List], int] = None,
         sample_instance = False,
         split=None,
+	datasize_t=None,
     ):
         super().__init__()
         assert isinstance(datasets, OrderedDict)
@@ -41,6 +42,7 @@ class MultiCorpusSampledDataset(FairseqDataset):
             sampling_func = uniform_sampler
         self.sampling_func = sampling_func
         self.p = None
+
         self.sample_instance = sample_instance
         self.split = split
 
@@ -50,6 +52,10 @@ class MultiCorpusSampledDataset(FairseqDataset):
             self.total_num_instances += dataset.__len__()
 
         self._ordered_indices = None
+        if datasize_t is not None:
+            self.p = np.array([len(data)**(1/datasize_t) for data in datasets.values()])
+            self.p = self.p / np.sum(self.p)
+            print("data sampling with temperature {} is {}".format(datasize_t, str(self.p)) )
 
     def __len__(self):
         """

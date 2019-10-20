@@ -21,15 +21,24 @@ class AveEmbActor(torch.nn.Module):
     """Average Embedding actor"""
     def __init__(self, args, task, emb=None, optimize_emb=True):
         super(AveEmbActor, self).__init__()
-        assert task.source_dictionary == task.target_dictionary
-        dictionary = task.source_dictionary
-        self.padding_idx = dictionary.pad()
+        #assert task.source_dictionary == task.target_dictionary
+        src_dictionary = task.source_dictionary
+        trg_dictionary = task.target_dictionary
+        self.padding_idx = src_dictionary.pad()
         if emb is None:
             embed_dim = args.data_actor_embed_dim
-            num_embeddings = len(dictionary)
-            self.embed_tokens = Embedding(num_embeddings, embed_dim, self.padding_idx)
+            if src_dictionary == trg_dictionary:
+                num_embeddings = len(src_dictionary)
+                self.src_embed_tokens = Embedding(num_embeddings, embed_dim, self.padding_idx)
+                self.trg_embed_tokens = self.src_embed_tokens
+            else:
+                num_embeddings = len(src_dictionary)
+                self.src_embed_tokens = Embedding(num_embeddings, embed_dim, self.padding_idx)
+                num_embeddings = len(trg_dictionary)
+                self.trg_embed_tokens = Embedding(num_embeddings, embed_dim, self.padding_idx)
         else:
-            self.embed_tokens = emb
+            self.src_embed_tokens = emb
+            self.trg_embed_tokens = emb
             embed_dim = emb.weight.size(1)
         self.project_out = torch.nn.Linear(2*embed_dim, 1)
         self.out_score_type = args.out_score_type
@@ -39,7 +48,7 @@ class AveEmbActor(torch.nn.Module):
 
         src_word_count = (~src_tokens.eq(self.padding_idx)).long().sum(dim=-1, keepdim=True)
         # embed tokens
-        x = self.embed_tokens(src_tokens)
+        x = self.src_embed_tokens(src_tokens)
         #x = F.dropout(x, p=self.dropout_in, training=self.training)
         
         # B x T x C -> B x C
@@ -47,7 +56,7 @@ class AveEmbActor(torch.nn.Module):
 
         trg_word_count = (~trg_tokens.eq(self.padding_idx)).long().sum(dim=-1, keepdim=True)
         # embed tokens
-        y = self.embed_tokens(trg_tokens)
+        y = self.trg_embed_tokens(trg_tokens)
         
         #y = torch.nn.functional.dropout(y, p=self.dropout_in, training=self.training)
         # B x T x C -> B x C

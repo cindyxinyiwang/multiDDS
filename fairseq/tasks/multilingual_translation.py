@@ -118,6 +118,9 @@ class MultilingualTranslationTask(FairseqTask):
                             help='not use dev set gradient')
         parser.add_argument('--pretrain-data-actor', action='store_true',
                             help='pretrain the data actor')
+
+        parser.add_argument('--datasize-t', type=int, default=None,
+                            help='temperature for controlling datasize sampling')
         # fmt: on
 
     def __init__(self, args, dicts, training):
@@ -294,6 +297,7 @@ class MultilingualTranslationTask(FairseqTask):
                 ]),
                 sample_instance=self.args.sample_instance,
                 split=split,
+                datasize_t=self.args.datasize_t,
             )
         elif self.dataset_type == 'tcs':
             self.datasets[split] =  TCSSampledDataset(
