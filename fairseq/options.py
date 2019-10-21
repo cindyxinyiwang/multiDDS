@@ -205,7 +205,7 @@ def get_parser(desc, default_task='translation'):
                         help='whether to use fixed norm at output embedding')
 
     parser.add_argument('--data-actor', type=str, default=None,
-                        help='type of data actor [base|ave_emb]')
+                        help='type of data actor [base|ave_emb|only_grad]')
     parser.add_argument('--data-actor-lr', type=float, default=0.01,
                         help='lr for optimizing data actor')
     parser.add_argument('--data-actor-optim-step', type=int, default=1,
@@ -222,7 +222,8 @@ def get_parser(desc, default_task='translation'):
                         help='whether to valid on bleu score')
     parser.add_argument('--only-load-data-actor', action='store_true',
                         help='whether to valid on bleu score')
-
+    parser.add_argument('--grad-sim', type=str, default='cosine',
+                        help='[cosine|dot_prod]')
 
     from fairseq.registry import REGISTRIES
     for registry_name, REGISTRY in REGISTRIES.items():

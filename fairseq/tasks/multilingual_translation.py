@@ -121,6 +121,8 @@ class MultilingualTranslationTask(FairseqTask):
 
         parser.add_argument('--datasize-t', type=int, default=None,
                             help='temperature for controlling datasize sampling')
+        parser.add_argument('--alpha-p', type=float, default=0,
+                            help='[0-1] amount of interpolation for p')
         # fmt: on
 
     def __init__(self, args, dicts, training):
@@ -307,6 +309,7 @@ class MultilingualTranslationTask(FairseqTask):
                 sample_instance=self.args.sample_instance,
                 split=split,
                 datasize_t=self.args.datasize_t,
+                alpha_p=self.args.alpha_p,
             )
         elif self.dataset_type == 'tcs':
             self.datasets[split] =  TCSSampledDataset(

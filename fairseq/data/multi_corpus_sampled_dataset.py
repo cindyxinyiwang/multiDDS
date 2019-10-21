@@ -34,6 +34,7 @@ class MultiCorpusSampledDataset(FairseqDataset):
         sample_instance = False,
         split=None,
 	datasize_t=None,
+        alpha_p=0,
     ):
         super().__init__()
         assert isinstance(datasets, OrderedDict)
@@ -55,7 +56,9 @@ class MultiCorpusSampledDataset(FairseqDataset):
         if datasize_t is not None:
             self.p = np.array([len(data)**(1/datasize_t) for data in datasets.values()])
             self.p = self.p / np.sum(self.p)
+            self.datasize_p = self.p
             print("data sampling with temperature {} is {}".format(datasize_t, str(self.p)) )
+        self.alpha_p = alpha_p
 
     def __len__(self):
         """
@@ -121,14 +124,21 @@ class MultiCorpusSampledDataset(FairseqDataset):
             ])
 
     def update_sampling_distribution(self, logits):
-        print(logits)
+        #print(logits)
         for i, l in enumerate(logits):
             if logits[i] < 0:
                 logits[i] = 0
         if sum(logits) == 0:
             logits = [0.1 for _ in range(len(logits))]
-        self.p = np.array(logits) / sum(logits)
+        p = np.array(logits) / sum(logits)
         print("Updating probs")
+        print(p)
+        if self.alpha_p > 0:
+            self.p = self.alpha_p * self.datasize_p + (1-self.alpha_p) * p
+            self.p = self.p / np.sum(self.p)
+        else:
+            self.p = p
+        print("final probs")
         print(self.p)
 
     def collater(self, samples: List[Dict]):
