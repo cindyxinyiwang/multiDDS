@@ -345,7 +345,7 @@ class Trainer(object):
                 prob = torch.nn.functional.softmax(a_logits, dim=-1)
                 sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
         elif self.args.data_actor == 'only_grad':
-            sim_list = sim_list
+            sim_list = np.exp(sim_list)
         # set sampling distribution
         self.task.dataset('train').update_sampling_distribution(sim_list)
 
