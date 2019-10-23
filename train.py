@@ -70,6 +70,10 @@ def main(args, init_distributed=False):
     # corresponding train iterator
     extra_state, epoch_itr = checkpoint_utils.load_checkpoint(args, trainer)
 
+    # pretrain data actor
+    if args.pretrain_data_actor:
+        trainer.pretrain_data_actor(args)
+
     # Train until the learning rate gets too small
     max_epoch = args.max_epoch or math.inf
     max_update = args.max_update or math.inf

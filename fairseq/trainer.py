@@ -92,9 +92,9 @@ class Trainer(object):
                 self.extra_data_optimizer = torch.optim.Adam([p for p in self.extra_data_actor.project_out.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
             else:
                 self.extra_data_optimizer = torch.optim.Adam([p for p in self.extra_data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
-
-        if self.args.pretrain_data_actor:
-            self.pretrain_data_actor(args)
+        else:
+            self.extra_data_actor = None
+            self.extra_data_optimizer = None
 
     def init_meters(self, args):
         self.meters = OrderedDict()
@@ -351,6 +351,19 @@ class Trainer(object):
             sim_list = np.array(all_sim_list).min(axis=0).tolist()
         elif self.args.utility_type == 'median':
             sim_list = np.median(np.array(all_sim_list), axis=0).tolist()
+        elif self.args.utility_type == 'ave_minus_weight':
+            all_sim_list = np.array(all_sim_list)
+            print(all_sim_list)
+            sim_list = np.mean(all_sim_list, axis=0)
+            print(self.task.dataset('train').p)
+            current_p = np.array(self.task.dataset('train').p)
+            current_p.resize(1, len(all_sim_list))
+            weighted_sim = all_sim_list * current_p
+            np.fill_diagonal(weighted_sim, 0)
+            weighted_sim = np.sum(weighted_sim, axis=1)
+            print(weighted_sim)
+            sim_list = (sim_list - weighted_sim).tolist()
+            print(sim_list)
         if self.args.data_actor == 'base':
             feature = torch.ones(1, len(self.task.dataset('train').datasets.keys()))
             grad_scale = torch.FloatTensor(sim_list).view(1, -1)
@@ -445,8 +458,14 @@ class Trainer(object):
     def pretrain_data_actor(self, args):
         """pretrain the distribution to sample languages """
         if self.args.data_actor == 'base':
-            feature = torch.ones(1, len(args.lan_dists))
-            target = torch.FloatTensor(args.lan_dists).view(1, -1)
+            if self.args.pretrain_type == "lan_dist":
+                feature = torch.ones(1, len(args.lan_dists))
+                target = torch.FloatTensor(args.lan_dists).view(1, -1)
+                print(target)
+            elif self.args.pretrain_type == "datasize":
+                datasize_p = self.task.dataset('train').p
+                feature = torch.ones(1, len(datasize_p))
+                target = torch.FloatTensor(datasize_p).view(1, -1)
             print(target)
             for p in self.data_optimizer.param_groups:
                 p['lr'] = 0.001
@@ -455,7 +474,7 @@ class Trainer(object):
                 feature = feature.cuda()
                 target = target.cuda()
             l = 100
-            while l > 0.00001:
+            while l > 0.000001:
                 a_logits = self.data_actor.forward(feature)
                 prob = torch.nn.functional.softmax(a_logits, dim=-1)
                 loss = torch.nn.functional.mse_loss(prob, target)

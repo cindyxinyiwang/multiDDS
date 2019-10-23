@@ -118,6 +118,8 @@ class MultilingualTranslationTask(FairseqTask):
                             help='not use dev set gradient')
         parser.add_argument('--pretrain-data-actor', action='store_true',
                             help='pretrain the data actor')
+        parser.add_argument('--pretrain-type', type=str, default='lan_dist',
+                            help='[lan_dist|datasize]')
 
         parser.add_argument('--datasize-t', type=int, default=None,
                             help='temperature for controlling datasize sampling')

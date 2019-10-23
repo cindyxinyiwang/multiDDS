@@ -134,7 +134,8 @@ class MultiCorpusSampledDataset(FairseqDataset):
         print("Updating probs")
         print(p)
         if self.alpha_p > 0:
-            self.p = self.alpha_p * self.datasize_p + (1-self.alpha_p) * p
+            #self.p = self.alpha_p * self.datasize_p + (1-self.alpha_p) * p
+            self.p = np.array([i*j for i, j in zip(self.datasize_p, p) ])
             self.p = self.p / np.sum(self.p)
         else:
             self.p = p
