@@ -126,7 +126,13 @@ def train(args, trainer, task, epoch_itr, generator=None):
     valid_subsets = args.valid_subset.split(',')
     max_update = args.max_update or math.inf
     for i, samples in enumerate(progress, start=epoch_itr.iterations_in_epoch):
-        log_output = trainer.train_step(samples, update_actor=(i % args.update_language_sampling == 0))
+        if args.extra_data_actor == 'ave_emb':
+            update_actor = (i % args.extra_update_language_sampling == 0)
+        elif args.data_actor == 'ave_emb':
+            update_actor = (i % args.update_language_sampling == 0)
+        else:
+            update_actor = False
+        log_output = trainer.train_step(samples, update_actor=update_actor)
         if log_output is None:
             continue
 

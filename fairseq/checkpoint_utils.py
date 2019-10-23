@@ -226,6 +226,7 @@ def convert_state_dict_type(state_dict, ttype=torch.FloatTensor):
 def save_state(
     filename, args, model_state_dict, criterion, optimizer, lr_scheduler,
     num_updates, optim_history=None, extra_state=None, data_actor_state_dict=None, data_optimizer_state_dict=None,
+    extra_data_actor_state_dict=None, extra_data_optimizer_state_dict=None,
 ):
     from fairseq import utils
     if optim_history is None:
@@ -246,6 +247,8 @@ def save_state(
         'extra_state': extra_state,
         'data_actor': data_actor_state_dict if data_actor_state_dict else {},
         'data_optimizer': data_optimizer_state_dict if data_optimizer_state_dict else {},
+        'extra_data_actor': extra_data_actor_state_dict if extra_data_actor_state_dict else {},
+        'extra_data_optimizer': extra_data_optimizer_state_dict if extra_data_optimizer_state_dict else {},
     }
     if utils.has_parameters(criterion):
         state_dict['criterion'] = criterion.state_dict()

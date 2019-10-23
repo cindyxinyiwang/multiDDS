@@ -198,6 +198,8 @@ def get_parser(desc, default_task='translation'):
                         help='whether to use sde')
     parser.add_argument('--update-language-sampling', type=int, default=-1,
                         help='update language sampling every N step')
+    parser.add_argument('--extra-update-language-sampling', type=int, default=-1,
+                        help='update language sampling every N step')
 
     parser.add_argument('--scale-norm', action='store_true',
                         help='whether to use scaled norm')
@@ -206,6 +208,8 @@ def get_parser(desc, default_task='translation'):
 
     parser.add_argument('--data-actor', type=str, default=None,
                         help='type of data actor [base|ave_emb|only_grad]')
+    parser.add_argument('--extra-data-actor', type=str, default=None,
+                        help='type of data actor [ave_emb]')
     parser.add_argument('--data-actor-lr', type=float, default=0.01,
                         help='lr for optimizing data actor')
     parser.add_argument('--data-actor-optim-step', type=int, default=1,

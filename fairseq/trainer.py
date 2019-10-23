@@ -80,6 +80,18 @@ class Trainer(object):
         else:
             self.data_actor = None
             self.data_optimizer = None
+        
+        if self.args.extra_data_actor == 'ave_emb':
+            if self.args.data_actor_model_embed:
+                self.extra_data_actor = AveEmbActor(args, task, emb=self._model.embed_tokens)
+            else:
+                self.extra_data_actor = AveEmbActor(args, task)
+            if self.cuda:
+                self.extra_data_actor = self.extra_data_actor.cuda()
+            if not args.data_actor_embed_grad:
+                self.extra_data_optimizer = torch.optim.Adam([p for p in self.extra_data_actor.project_out.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
+            else:
+                self.extra_data_optimizer = torch.optim.Adam([p for p in self.extra_data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
 
         if self.args.pretrain_data_actor:
             self.pretrain_data_actor(args)
@@ -179,11 +191,19 @@ class Trainer(object):
             else:
                 data_actor_state = self.data_actor.state_dict()
                 data_optimizer_state = self.data_optimizer.state_dict()
+            if self.extra_data_actor is None:
+                extra_data_actor_state = None
+                extra_data_optimizer_state = None
+            else:
+                extra_data_actor_state = self.extra_data_actor.state_dict()
+                extra_data_optimizer_state = self.extra_data_optimizer.state_dict()
+
 
             checkpoint_utils.save_state(
                 filename, self.args, self.get_model().state_dict(), self.get_criterion(),
                 self.optimizer, self.lr_scheduler, self.get_num_updates(),
                 self._optim_history, extra_state, data_actor_state, data_optimizer_state,
+                extra_data_actor_state, extra_data_optimizer_state,
             )
 
     def load_checkpoint(
@@ -226,6 +246,10 @@ class Trainer(object):
                     self.data_actor.load_state_dict(state['data_actor'])
                 if 'data_optimizer' in state and state['data_optimizer']:
                     self.data_optimizer.load_state_dict(state['data_optimizer'])
+                if 'extra_data_actor' in state and state['extra_data_actor']:
+                    self.extra_data_actor.load_state_dict(state['extra_data_actor'])
+                if 'extra_data_optimizer' in state and state['extra_data_optimizer']:
+                    self.extra_data_optimizer.load_state_dict(state['extra_data_optimizer'])
 
             if last_optim_state is not None and not reset_optimizer:
                 # rebuild optimizer after loading model, since params may have changed
@@ -517,6 +541,11 @@ class Trainer(object):
                         data_actor = self.data_actor
                         cached_loss = {}
                         data_actor_out = {}
+                    elif self.args.extra_data_actor == 'ave_emb' and update_actor:
+                        self.optimizer.clone_param()
+                        data_actor = self.extra_data_actor
+                        cached_loss = {}
+                        data_actor_out = {}
                     else:
                         data_actor = None
                         cached_loss = None
@@ -640,7 +669,7 @@ class Trainer(object):
 
         self.meters['train_wall'].stop()
 
-        if self.args.data_actor == 'ave_emb' and update_actor:
+        if (self.args.data_actor == 'ave_emb' or self.args.extra_data_actor == 'ave_emb') and update_actor:
             # update data actor
             # get dev gradient
             if self.args.data_actor_multilin:
@@ -707,8 +736,12 @@ class Trainer(object):
                 if cur_loss[k].size(0) > 0:
                     loss.div_(cur_loss[k].size(0))
                 loss.sum().backward()
-            self.data_optimizer.step()
-            self.data_optimizer.zero_grad()
+            if self.args.data_actor == 'ave_emb': 
+                self.data_optimizer.step()
+                self.data_optimizer.zero_grad()
+            elif self.args.extra_data_actor == 'ave_emb':
+                self.extra_data_optimizer.step()
+                self.extra_data_optimizer.zero_grad()
 
         return logging_output
 
