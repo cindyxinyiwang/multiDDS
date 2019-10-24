@@ -300,6 +300,7 @@ class Trainer(object):
         # #dev dataset x #train dataset
         all_sim_list = []
         for i, valid_key in enumerate(self.task.dataset('valid').datasets.keys()):
+            #for _ in range(self.args.loss_steps):
             valid_sample = self.task.dataset('valid').get_sample_with_key(valid_key)
             valid_sample = self._prepare_sample(valid_sample)
             loss, sample_size, logging_output = self.task.train_step(
@@ -317,6 +318,7 @@ class Trainer(object):
                     if not args.no_dev and key == valid_key:
                         sim_list.append(1.0)
                     else:
+                        #for _ in range(self.args.loss_steps):
                         sample = self.task.dataset('train').get_sample_with_key(key)
                         sample = self._prepare_sample(sample)
                         # calculate sim

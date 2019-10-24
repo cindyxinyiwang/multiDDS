@@ -228,6 +228,9 @@ def get_parser(desc, default_task='translation'):
                         help='whether to valid on bleu score')
     parser.add_argument('--grad-sim', type=str, default='cosine',
                         help='[cosine|dot_prod]')
+    parser.add_argument('--loss-steps', type=int, default=1,
+                        help='number of steps to calculate loss for grad sim')
+
 
     from fairseq.registry import REGISTRIES
     for registry_name, REGISTRY in REGISTRIES.items():
