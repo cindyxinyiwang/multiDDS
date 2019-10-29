@@ -349,6 +349,7 @@ class Trainer(object):
         # get rewards for languages based on different objectives
         if self.args.utility_type == 'ave':
             sim_list = np.mean(np.array(all_sim_list), axis=0).tolist()
+            print(sim_list)
         elif self.args.utility_type == 'min':
             sim_list = np.array(all_sim_list).min(axis=0).tolist()
         elif self.args.utility_type == 'median':
@@ -386,6 +387,13 @@ class Trainer(object):
         elif self.args.data_actor == 'only_grad':
             sim_list = np.exp(sim_list)
             sim_list = sim_list/np.sum(sim_list)
+        elif self.args.data_actor == 'interpolate_grad':
+            orig_p = np.array(self.task.dataset('train').p)
+            log_p = np.log(orig_p)
+            print(log_p)
+            log_p += np.array(sim_list) * self.args.data_actor_lr
+            print(log_p)
+            sim_list = np.exp(log_p)
         # set sampling distribution
         self.task.dataset('train').update_sampling_distribution(sim_list)
 

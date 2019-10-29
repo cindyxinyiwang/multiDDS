@@ -125,14 +125,14 @@ class MultiCorpusSampledDataset(FairseqDataset):
 
     def update_sampling_distribution(self, logits):
         #print(logits)
+        print("previous probs")
+        print(self.p)
         for i, l in enumerate(logits):
             if logits[i] < 0:
                 logits[i] = 0
         if sum(logits) == 0:
             logits = [0.1 for _ in range(len(logits))]
         p = np.array(logits) / sum(logits)
-        print("Updating probs")
-        print(p)
         if self.alpha_p > 0:
             #self.p = self.alpha_p * self.datasize_p + (1-self.alpha_p) * p
             self.p = np.array([i*j for i, j in zip(self.datasize_p, p) ])

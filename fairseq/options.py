@@ -207,7 +207,7 @@ def get_parser(desc, default_task='translation'):
                         help='whether to use fixed norm at output embedding')
 
     parser.add_argument('--data-actor', type=str, default=None,
-                        help='type of data actor [base|ave_emb|only_grad]')
+                        help='type of data actor [base|ave_emb|only_grad|interpolate_grad]')
     parser.add_argument('--extra-data-actor', type=str, default=None,
                         help='type of data actor [ave_emb]')
     parser.add_argument('--data-actor-lr', type=float, default=0.01,
