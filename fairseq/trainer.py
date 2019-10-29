@@ -60,7 +60,7 @@ class Trainer(object):
 
         self.init_meters(args)
 
-        if self.args.data_actor == 'base':
+        if self.args.data_actor == 'base' or self.args.data_actor == 'base_weight':
             # use language level data selector with only bias
             self.data_actor = BaseActor(args, len(self.args.lang_pairs))
             if self.cuda:
@@ -384,6 +384,25 @@ class Trainer(object):
                 a_logits = self.data_actor.forward(feature)
                 prob = torch.nn.functional.softmax(a_logits, dim=-1)
                 sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
+        elif self.args.data_actor == 'base_weight':
+            print(all_sim_list)
+            feature = torch.ones(1, len(self.task.dataset('train').datasets.keys()))
+            grad_scale = torch.FloatTensor(all_sim_list)
+            if self.cuda:
+                feature = feature.cuda()
+                grad_scale = grad_scale.cuda()
+            for _ in range(self.args.data_actor_optim_step):
+                a_logits = self.data_actor.forward(feature)
+                a_prob = torch.softmax(a_logits, dim=-1)
+                loss = (grad_scale * a_prob.view(-1, 1)) * a_prob.view(1, -1)
+                loss = loss.sum()
+                loss.backward()
+                self.data_optimizer.step()
+                self.data_optimizer.zero_grad()
+            with torch.no_grad():
+                a_logits = self.data_actor.forward(feature)
+                prob = torch.nn.functional.softmax(a_logits, dim=-1)
+                sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
         elif self.args.data_actor == 'only_grad':
             sim_list = np.exp(sim_list)
             sim_list = sim_list/np.sum(sim_list)
@@ -467,7 +486,7 @@ class Trainer(object):
     
     def pretrain_data_actor(self, args):
         """pretrain the distribution to sample languages """
-        if self.args.data_actor == 'base':
+        if self.args.data_actor == 'base' or self.args.data_actor == 'base_weight':
             if self.args.pretrain_type == "lan_dist":
                 feature = torch.ones(1, len(args.lan_dists))
                 target = torch.FloatTensor(args.lan_dists).view(1, -1)
