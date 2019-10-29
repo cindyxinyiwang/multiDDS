@@ -58,6 +58,9 @@ class MultiCorpusSampledDataset(FairseqDataset):
             self.p = self.p / np.sum(self.p)
             self.datasize_p = self.p
             print("data sampling with temperature {} is {}".format(datasize_t, str(self.p)) )
+        else:
+            self.p = np.array([1 for _ in range(len(datasets))])
+            self.p = self.p / np.sum(self.p)
         self.alpha_p = alpha_p
 
     def __len__(self):
