@@ -343,6 +343,9 @@ class Trainer(object):
             elif self.args.feature_type == 'train_loss':
                 feature = torch.FloatTensor(train_losses).view(1, -1)
                 feature = feature/feature.sum()
+            else:
+                print("feature not supported")
+                exit(1)
             self.pretrained = True
             self.pretrain_data_actor(feature)
             return
@@ -363,7 +366,7 @@ class Trainer(object):
             for k, sim in enumerate(all_sim_list):
                 if k in selected_indices:
                     selected_sim_list.append(sim)
-            sim_list = np.array(selected_sim_list).ave(axis=0).tolist()
+            sim_list = np.mean(np.array(selected_sim_list), axis=0).tolist()
             print(sim_list)
         elif self.args.utility_type == 'median':
             sorted_indices = np.argsort(valid_losses)
