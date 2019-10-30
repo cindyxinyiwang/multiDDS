@@ -355,7 +355,7 @@ class Trainer(object):
             # sort by loss, ascending order
             sorted_indices = np.argsort(valid_losses)
             selected_indices = sorted_indices[len(valid_losses)//2:]
-            val_keys = self.task.dataset('valid').datasets.keys()
+            val_keys = list(self.task.dataset('valid').datasets.keys())
             print('selected keys:')
             for k in selected_indices:
                 print(val_keys[k], valid_losses[k])
@@ -363,14 +363,16 @@ class Trainer(object):
             for k, sim in enumerate(all_sim_list):
                 if k in selected_indices:
                     selected_sim_list.append(sim)
-            sim_list = np.array(selected_sim_list).min(axis=0).tolist()
+            sim_list = np.array(selected_sim_list).ave(axis=0).tolist()
+            print(sim_list)
         elif self.args.utility_type == 'median':
             sorted_indices = np.argsort(valid_losses)
             selected_index = sorted_indices[len(valid_losses)//2]
-            val_keys = self.task.dataset('valid').datasets.keys()
+            val_keys = list(self.task.dataset('valid').datasets.keys())
             print('selected keys:')
             print(val_keys[selected_index], valid_losses[selected_index])
             sim_list = all_sim_list[selected_index]
+            print(sim_list)
         elif self.args.utility_type == 'ave_minus_weight':
             all_sim_list = np.array(all_sim_list)
             print(all_sim_list)
