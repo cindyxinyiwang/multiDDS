@@ -401,12 +401,15 @@ class Trainer(object):
             print('feature')
             print(feature)
             grad_scale = torch.FloatTensor(sim_list).view(1, -1)
+
             if self.cuda:
                 feature = feature.cuda()
                 grad_scale = grad_scale.cuda()
             for _ in range(self.args.data_actor_optim_step):
                 a_logits = self.data_actor.forward(feature)
                 loss = -torch.nn.functional.log_softmax(a_logits, dim=-1)
+                if self.args.scale_reward:
+                    loss = loss * torch.softmax(a_logits, dim=-1).data
                 loss = (loss * grad_scale).sum()
                 loss.backward()
                 self.data_optimizer.step()

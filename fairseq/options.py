@@ -230,7 +230,8 @@ def get_parser(desc, default_task='translation'):
                         help='[cosine|dot_prod]')
     parser.add_argument('--loss-steps', type=int, default=1,
                         help='number of steps to calculate loss for grad sim')
-
+    parser.add_argument('--scale-reward', action='store_true',
+                        help='whether to scale reward by current p')
 
     from fairseq.registry import REGISTRIES
     for registry_name, REGISTRY in REGISTRIES.items():
