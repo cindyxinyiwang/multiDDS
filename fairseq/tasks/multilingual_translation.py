@@ -110,7 +110,7 @@ class MultilingualTranslationTask(FairseqTask):
         parser.add_argument('--data-actor-multilin', action='store_true',
                             help='whether to multiling version of the actor')
         parser.add_argument('--utility-type', type=str, default='ave',
-                            help='type of utility function [ave|min|median|vec_ave]')
+                            help='type of utility function [ave|min-half|median]')
         parser.add_argument('--eval-lang-pairs', type=str, default=None,
                             help='dev data keys for multilin actor')
 
@@ -120,6 +120,8 @@ class MultilingualTranslationTask(FairseqTask):
                             help='pretrain the data actor')
         parser.add_argument('--pretrain-type', type=str, default='lan_dist',
                             help='[lan_dist|datasize]')
+        parser.add_argument('--feature-type', type=str, default='ones',
+                            help='[ones|valid_loss|train_loss]')
 
         parser.add_argument('--datasize-t', type=int, default=None,
                             help='temperature for controlling datasize sampling')
