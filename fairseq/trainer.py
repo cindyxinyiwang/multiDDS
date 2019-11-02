@@ -95,6 +95,11 @@ class Trainer(object):
         else:
             self.extra_data_actor = None
             self.extra_data_optimizer = None
+        self.baseline = None
+        if args.language_weight:
+            self.language_weight = np.array([float(w) for w in args.language_weight.split(",")]).reshape(-1, 1) 
+        else:
+            self.language_weight = None
 
     def init_meters(self, args):
         self.meters = OrderedDict()
@@ -348,14 +353,17 @@ class Trainer(object):
                 exit(1)
             self.pretrained = True
             self.pretrain_data_actor(feature)
-            return
         # get rewards for languages based on different objectives
         if self.args.utility_type == 'ave':
+            if self.language_weight:
+                all_sim_list = np.array(all_sim_list) * self.language_weight
             sim_list = np.mean(np.array(all_sim_list), axis=0).tolist()
             print(sim_list)
         elif self.args.utility_type == 'min-half':
             # find the valid languages with max losses
             # sort by loss, ascending order
+            if self.language_weight:
+                all_sim_list = np.array(all_sim_list) * self.language_weight
             sorted_indices = np.argsort(valid_losses)
             selected_indices = sorted_indices[len(valid_losses)//2:]
             val_keys = list(self.task.dataset('valid').datasets.keys())
@@ -369,6 +377,8 @@ class Trainer(object):
             sim_list = np.mean(np.array(selected_sim_list), axis=0).tolist()
             print(sim_list)
         elif self.args.utility_type == 'median':
+            if self.language_weight:
+                all_sim_list = np.array(all_sim_list) * self.language_weight
             sorted_indices = np.argsort(valid_losses)
             selected_index = sorted_indices[len(valid_losses)//2]
             val_keys = list(self.task.dataset('valid').datasets.keys())
@@ -377,6 +387,8 @@ class Trainer(object):
             sim_list = all_sim_list[selected_index]
             print(sim_list)
         elif self.args.utility_type == 'ave_minus_weight':
+            if self.language_weight:
+                all_sim_list = np.array(all_sim_list) * self.language_weight
             all_sim_list = np.array(all_sim_list)
             print(all_sim_list)
             sim_list = np.mean(all_sim_list, axis=0)
@@ -389,6 +401,33 @@ class Trainer(object):
             print(weighted_sim)
             sim_list = (sim_list - weighted_sim).tolist()
             print(sim_list)
+        elif self.args.utility_type == 'ave_minus_baseline':
+            all_sim_list = np.array(all_sim_list)
+            print(all_sim_list)
+            print(self.task.dataset('train').p)
+            current_p = np.array(self.task.dataset('train').p)
+            current_p.resize(1, len(all_sim_list))
+            weighted_sim = all_sim_list * current_p
+            weighted_sim = np.sum(weighted_sim, axis=1)
+            print(weighted_sim)
+            if self.language_weight:
+                sim_list = (all_sim_list - weighted_sim) * self.language_weight
+                sim_list = np.mean(sim_list, axis=0).tolist()
+            else:
+                sim_list = np.mean((all_sim_list - weighted_sim), axis=0).tolist()
+            print(sim_list)
+
+        if self.args.baseline:
+            cur_reward = np.array(sim_list)
+            if self.baseline is None:
+                self.baseline = np.mean(cur_reward)
+            else:
+                sim_list = cur_reward - self.baseline
+                self.baseline = 0.5*self.baseline + 0.5*np.mean(cur_reward)
+                sim_list = sim_list.tolist()
+            print("baseline: {}".format(self.baseline))
+            print("reward")
+            print(sim_list)  
         if self.args.data_actor == 'base':
             if self.args.feature_type == 'ones':
                 feature = torch.ones(1, len(self.task.dataset('train').datasets.keys()))
@@ -401,12 +440,15 @@ class Trainer(object):
             print('feature')
             print(feature)
             grad_scale = torch.FloatTensor(sim_list).view(1, -1)
+
             if self.cuda:
                 feature = feature.cuda()
                 grad_scale = grad_scale.cuda()
             for _ in range(self.args.data_actor_optim_step):
                 a_logits = self.data_actor.forward(feature)
                 loss = -torch.nn.functional.log_softmax(a_logits, dim=-1)
+                if self.args.scale_reward:
+                    loss = loss * torch.softmax(a_logits, dim=-1).data
                 loss = (loss * grad_scale).sum()
                 loss.backward()
                 self.data_optimizer.step()
