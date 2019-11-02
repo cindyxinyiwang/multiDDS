@@ -234,6 +234,8 @@ def get_parser(desc, default_task='translation'):
                         help='whether to scale reward by current p')
     parser.add_argument('--baseline', action='store_true',
                         help='whether to scale reward by current p')
+    parser.add_argument('--language-weight', type=str, default=None,
+                        help='dev language weights separated by comma')
 
 
     from fairseq.registry import REGISTRIES
