@@ -565,7 +565,6 @@ class Trainer(object):
                 loss.backward()
                 self.data_optimizer.step()
                 self.data_optimizer.zero_grad()
-                step += 1
             with torch.no_grad():
                 a_logits = self.data_actor.forward(feature)
                 prob = torch.nn.functional.softmax(a_logits, dim=-1)
