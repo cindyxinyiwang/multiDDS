@@ -41,12 +41,12 @@ CUDA_VISIBLE_DEVICES=$1 python train.py data-bin/ted_eight/ \
     --encoder-normalize-before --decoder-normalize-before \
     --scale-norm \
   	--update-language-sampling 1000 \
-  	--data-actor 'ave_minus_baseline' \
+  	--data-actor 'base' \
   	--data-actor-lr 0.0001 \
   	--data-actor-optim-step 200 \
 	  --no-dev \
 	  --data-actor-multilin \
-    --utility-type 'ave' \
+    --utility-type 'ave_minus_baseline' \
     --datasize-t 1 \
     --pretrain-type "datasize" \
     --pretrain-data-actor \
