@@ -95,6 +95,7 @@ class Trainer(object):
         else:
             self.extra_data_actor = None
             self.extra_data_optimizer = None
+        self.baseline = None
 
     def init_meters(self, args):
         self.meters = OrderedDict()
@@ -348,7 +349,6 @@ class Trainer(object):
                 exit(1)
             self.pretrained = True
             self.pretrain_data_actor(feature)
-            return
         # get rewards for languages based on different objectives
         if self.args.utility_type == 'ave':
             sim_list = np.mean(np.array(all_sim_list), axis=0).tolist()
@@ -389,6 +389,29 @@ class Trainer(object):
             print(weighted_sim)
             sim_list = (sim_list - weighted_sim).tolist()
             print(sim_list)
+        elif self.args.utility_type == 'ave_minus_baseline':
+            all_sim_list = np.array(all_sim_list)
+            print(all_sim_list)
+            print(self.task.dataset('train').p)
+            current_p = np.array(self.task.dataset('train').p)
+            current_p.resize(1, len(all_sim_list))
+            weighted_sim = all_sim_list * current_p
+            weighted_sim = np.sum(weighted_sim, axis=1)
+            print(weighted_sim)
+            sim_list = np.mean((all_sim_list - weighted_sim), axis=0).tolist()
+            print(sim_list)
+
+        if self.args.baseline:
+            cur_reward = np.array(sim_list)
+            if self.baseline is None:
+                self.baseline = np.mean(cur_reward)
+            else:
+                sim_list = cur_reward - self.baseline
+                self.baseline = 0.5*self.baseline + 0.5*np.mean(cur_reward)
+                sim_list = sim_list.tolist()
+            print("baseline: {}".format(self.baseline))
+            print("reward")
+            print(sim_list)  
         if self.args.data_actor == 'base':
             if self.args.feature_type == 'ones':
                 feature = torch.ones(1, len(self.task.dataset('train').datasets.keys()))
@@ -542,6 +565,7 @@ class Trainer(object):
                 loss.backward()
                 self.data_optimizer.step()
                 self.data_optimizer.zero_grad()
+                step += 1
             with torch.no_grad():
                 a_logits = self.data_actor.forward(feature)
                 prob = torch.nn.functional.softmax(a_logits, dim=-1)

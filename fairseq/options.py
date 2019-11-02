@@ -232,6 +232,9 @@ def get_parser(desc, default_task='translation'):
                         help='number of steps to calculate loss for grad sim')
     parser.add_argument('--scale-reward', action='store_true',
                         help='whether to scale reward by current p')
+    parser.add_argument('--baseline', action='store_true',
+                        help='whether to scale reward by current p')
+
 
     from fairseq.registry import REGISTRIES
     for registry_name, REGISTRY in REGISTRIES.items():
