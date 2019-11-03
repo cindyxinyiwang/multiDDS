@@ -355,14 +355,14 @@ class Trainer(object):
             self.pretrain_data_actor(feature)
         # get rewards for languages based on different objectives
         if self.args.utility_type == 'ave':
-            if self.language_weight:
+            if self.language_weight is not None:
                 all_sim_list = np.array(all_sim_list) * self.language_weight
             sim_list = np.mean(np.array(all_sim_list), axis=0).tolist()
             print(sim_list)
         elif self.args.utility_type == 'min-half':
             # find the valid languages with max losses
             # sort by loss, ascending order
-            if self.language_weight:
+            if self.language_weight is not None:
                 all_sim_list = np.array(all_sim_list) * self.language_weight
             sorted_indices = np.argsort(valid_losses)
             selected_indices = sorted_indices[len(valid_losses)//2:]
@@ -377,7 +377,7 @@ class Trainer(object):
             sim_list = np.mean(np.array(selected_sim_list), axis=0).tolist()
             print(sim_list)
         elif self.args.utility_type == 'median':
-            if self.language_weight:
+            if self.language_weight is not None:
                 all_sim_list = np.array(all_sim_list) * self.language_weight
             sorted_indices = np.argsort(valid_losses)
             selected_index = sorted_indices[len(valid_losses)//2]
@@ -387,7 +387,7 @@ class Trainer(object):
             sim_list = all_sim_list[selected_index]
             print(sim_list)
         elif self.args.utility_type == 'ave_minus_weight':
-            if self.language_weight:
+            if self.language_weight is not None:
                 all_sim_list = np.array(all_sim_list) * self.language_weight
             all_sim_list = np.array(all_sim_list)
             print(all_sim_list)
@@ -410,7 +410,7 @@ class Trainer(object):
             weighted_sim = all_sim_list * current_p
             weighted_sim = np.sum(weighted_sim, axis=1)
             print(weighted_sim)
-            if self.language_weight:
+            if self.language_weight is not None:
                 sim_list = (all_sim_list - weighted_sim) * self.language_weight
                 sim_list = np.mean(sim_list, axis=0).tolist()
             else:
