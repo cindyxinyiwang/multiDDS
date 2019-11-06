@@ -321,23 +321,23 @@ class Trainer(object):
                 torch.cuda.empty_cache()
             sim_list = []
             for j, key in enumerate(self.task.dataset('train').datasets.keys()):
-                if not args.no_dev and key == valid_key:
-                    sim_list.append(1.0)
-                else:
-                    #for _ in range(self.args.loss_steps):
-                    sample = self.task.dataset('train').get_sample_with_key(key)
-                    sample = self._prepare_sample(sample)
-                    # calculate sim
-                    loss, sample_size, logging_output = self.task.train_step(
-                                            sample, self.model, self.criterion, self.optimizer)
-                    if sample_size > 0:
-                        loss = loss / sample_size
-                    train_losses.append(loss)
-                    sim = self.optimizer.get_grad_sim()
-                    sim_list.append(sim)
-                    self.zero_grad()
-                    if self.cuda:
-                        torch.cuda.empty_cache()
+                #if args.no_dev and key == valid_key:
+                #    sim_list.append(1.0)
+                #else:
+                #for _ in range(self.args.loss_steps):
+                sample = self.task.dataset('train').get_sample_with_key(key)
+                sample = self._prepare_sample(sample)
+                # calculate sim
+                loss, sample_size, logging_output = self.task.train_step(
+                                        sample, self.model, self.criterion, self.optimizer)
+                if sample_size > 0:
+                    loss = loss / sample_size
+                train_losses.append(loss)
+                sim = self.optimizer.get_grad_sim()
+                sim_list.append(sim)
+                self.zero_grad()
+                if self.cuda:
+                    torch.cuda.empty_cache()
             all_sim_list.append(sim_list)
         if args.pretrain_data_actor and not self.pretrained:
             if self.args.feature_type == 'ones':
@@ -499,31 +499,41 @@ class Trainer(object):
         self.criterion.train()
         self.zero_grad()
 
-        if not args.no_dev:
-            dev_itr = self.task.get_batch_iterator(
-                dataset=self.task.dataset('valid'),
-                max_tokens=args.max_tokens_valid,
-                max_sentences=args.max_sentences_valid,
-                max_positions=utils.resolve_max_positions(
-                    self.task.max_positions(),
-                    self.get_model().max_positions(),
-                ),
-                ignore_invalid_inputs=args.skip_invalid_size_inputs_valid_test,
-                required_batch_size_multiple=args.required_batch_size_multiple,
-                seed=args.seed,
-                num_shards=args.distributed_world_size,
-                shard_id=args.distributed_rank,
-                num_workers=args.num_workers,
-            ).next_epoch_itr(shuffle=True)
-            for sample in dev_itr:
-                sample = self._prepare_sample(sample)
-                assert sample is not None
-                loss, sample_size, logging_output = self.task.train_step(
-                                        sample, self.model, self.criterion, self.optimizer)
-                self.optimizer.save_dev_grad()
-                #self.optimizer.zero_grad()
-                break
-            self.zero_grad()
+        #if not args.no_dev:
+        #dev_itr = self.task.get_batch_iterator(
+        #    dataset=self.task.dataset('valid'),
+        #    max_tokens=args.max_tokens_valid,
+        #    max_sentences=args.max_sentences_valid,
+        #    max_positions=utils.resolve_max_positions(
+        #        self.task.max_positions(),
+        #        self.get_model().max_positions(),
+        #    ),
+        #    ignore_invalid_inputs=args.skip_invalid_size_inputs_valid_test,
+        #    required_batch_size_multiple=args.required_batch_size_multiple,
+        #    seed=args.seed,
+        #    num_shards=args.distributed_world_size,
+        #    shard_id=args.distributed_rank,
+        #    num_workers=args.num_workers,
+        #).next_epoch_itr(shuffle=True)
+        #for sample in dev_itr:
+        #    sample = self._prepare_sample(sample)
+        #    assert sample is not None
+        #    loss, sample_size, logging_output = self.task.train_step(
+        #                            sample, self.model, self.criterion, self.optimizer)
+        #    self.optimizer.save_dev_grad()
+        #    #self.optimizer.zero_grad()
+        #    break
+        #self.zero_grad()
+        for i, valid_key in enumerate(self.task.dataset('valid').datasets.keys()):
+            #for _ in range(self.args.loss_steps):
+            valid_sample = self.task.dataset('valid').get_sample_with_key(valid_key)
+            valid_sample = self._prepare_sample(valid_sample)
+            loss, sample_size, logging_output = self.task.train_step(
+                                    valid_sample, self.model, self.criterion, self.optimizer)
+            
+        self.optimizer.save_dev_grad()
+        self.zero_grad()
+
         sim_list = []
         for i, key in enumerate(self.task.dataset('train').datasets.keys()):
             sample = self.task.dataset('train').get_sample_with_key(key)
@@ -531,11 +541,26 @@ class Trainer(object):
             # calculate sim
             loss, sample_size, logging_output = self.task.train_step(
                                     sample, self.model, self.criterion, self.optimizer)
-            if args.no_dev and i == 0:
-                self.optimizer.save_dev_grad()
+            #if args.no_dev and i == 0:
+            self.optimizer.save_dev_grad()
             sim = self.optimizer.get_grad_sim()
             sim_list.append(sim)
             self.zero_grad()
+
+        if args.pretrain_data_actor and not self.pretrained:
+            if self.args.feature_type == 'ones':
+                feature = torch.ones(1, len(self.task.dataset('train').datasets.keys()))
+            elif self.args.feature_type == 'valid_loss':
+                feature = torch.FloatTensor(valid_losses).view(1, -1)
+                feature = feature/feature.sum()
+            elif self.args.feature_type == 'train_loss':
+                feature = torch.FloatTensor(train_losses).view(1, -1)
+                feature = feature/feature.sum()
+            else:
+                print("feature not supported")
+                exit(1)
+            self.pretrained = True
+            self.pretrain_data_actor(feature)
 
         if self.args.data_actor == 'base':
             feature = torch.ones(1, len(self.task.dataset('train').datasets.keys()))
