@@ -25,7 +25,7 @@ python train.py data-bin/ted_8_diverse/ \
 	  --arch multilingual_transformer_iwslt_de_en \
 	  --max-epoch 50 \
           --dataset-type "multi" \
-    	  --lang-pairs "eng-aze,eng-tur,eng-bel,eng-rus,eng-glg,eng-por,eng-slk,eng-ces" \
+          --lang-pairs "eng-bos,eng-mar,eng-hin,eng-mkd,eng-ell,eng-bul,eng-fra,eng-kor" \
 	  --no-epoch-checkpoints \
 	  --distributed-world-size 1 \
 	  --share-decoder-input-output-embed --share-decoders --share-encoders \
