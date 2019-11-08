@@ -28,6 +28,7 @@ python train.py data-bin/ted_8_diverse/ \
           --lang-pairs "eng-bos,eng-mar,eng-hin,eng-mkd,eng-ell,eng-bul,eng-fra,eng-kor" \
 	  --no-epoch-checkpoints \
 	  --distributed-world-size 1 \
+	  --encoder-langtok "tgt" \
 	  --share-decoder-input-output-embed --share-decoders --share-encoders \
 	  --dropout 0.3 --attention-dropout 0.3 --relu-dropout 0.3 --weight-decay 0.0 \
 	  --left-pad-source 'True' --left-pad-target 'False' \
