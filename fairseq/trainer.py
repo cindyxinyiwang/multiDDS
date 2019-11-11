@@ -20,7 +20,7 @@ import torch
 from fairseq import checkpoint_utils, distributed_utils, models, optim, utils
 from fairseq.meters import AverageMeter, StopwatchMeter, TimeMeter
 from fairseq.optim import lr_scheduler
-from fairseq.models import BaseActor, AveEmbActor
+from fairseq.models import BaseActor, AveEmbActor, LanguageActor
 
 class Trainer(object):
     """Main class for data parallel training.
@@ -77,6 +77,11 @@ class Trainer(object):
                 self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.project_out.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
             else:
                 self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
+        elif self.args.data_actor == 'lan':
+            self.data_actor = LanguageActor(args, len(self.args.lang_pairs))
+            if self.cuda:
+                self.data_actor = self.data_actor.cuda()
+            self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
         else:
             self.data_actor = None
             self.data_optimizer = None
@@ -516,7 +521,29 @@ class Trainer(object):
             log_p += np.array(sim_list) * self.args.data_actor_lr
             print(log_p)
             sim_list = np.exp(log_p)
-        # set sampling distribution
+        elif self.args.data_actor == 'lan':
+            feature = torch.LongTensor([i for i in range(len(self.task.dataset('train').datasets.keys()))]).view(1, -1)
+            print('feature')
+            print(feature)
+            grad_scale = torch.FloatTensor(sim_list).view(1, -1)
+
+            if self.cuda:
+                feature = feature.cuda()
+                grad_scale = grad_scale.cuda()
+            for _ in range(self.args.data_actor_optim_step):
+                a_logits = self.data_actor.forward(feature)
+                loss = -torch.nn.functional.log_softmax(a_logits, dim=-1)
+                if self.args.scale_reward:
+                    loss = loss * torch.softmax(a_logits, dim=-1).data
+                loss = (loss * grad_scale).sum()
+                loss.backward()
+                self.data_optimizer.step()
+                self.data_optimizer.zero_grad()
+            with torch.no_grad():
+                a_logits = self.data_actor.forward(feature)
+                prob = torch.nn.functional.softmax(a_logits, dim=-1)
+                sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
+
         self.task.dataset('train').update_sampling_distribution(sim_list)
 
 
@@ -612,7 +639,7 @@ class Trainer(object):
         # set sampling distribution
         self.task.dataset('train').update_sampling_distribution(sim_list)
     
-    def pretrain_data_actor(self, feature):
+    def pretrain_data_actor(self, feature=None):
         """pretrain the distribution to sample languages """
         if self.args.data_actor == 'base' or self.args.data_actor == 'base_weight':
             if self.args.pretrain_type == "lan_dist":
@@ -639,6 +666,36 @@ class Trainer(object):
             with torch.no_grad():
                 a_logits = self.data_actor.forward(feature)
                 prob = torch.nn.functional.softmax(a_logits, dim=-1)
+                sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
+                print("pretrained_sim", sim_list)
+
+            for p in self.data_optimizer.param_groups:
+                p['lr'] = self.args.data_actor_lr
+        elif self.args.data_actor == 'lan':
+            if self.args.pretrain_type == "lan_dist":
+                target = torch.FloatTensor(args.lan_dists).view(-1, 1)
+            elif self.args.pretrain_type == "datasize":
+                datasize_p = self.task.dataset('train').p
+                target = torch.FloatTensor(datasize_p).view(-1, 1)
+            print(target)
+            feature = torch.LongTensor([i for i in range(len(datasize_p))]).view(-1, 1)
+            for p in self.data_optimizer.param_groups:
+                p['lr'] = 0.001
+            if self.cuda:
+                feature = feature.cuda()
+                target = target.cuda()
+            l = 100
+            while l > 0.000001:
+                a_logits = self.data_actor.forward(feature)
+                prob = torch.nn.functional.softmax(a_logits, dim=0)
+                loss = torch.nn.functional.mse_loss(prob, target)
+                l = loss.item()
+                loss.backward()
+                self.data_optimizer.step()
+                self.data_optimizer.zero_grad()
+            with torch.no_grad():
+                a_logits = self.data_actor.forward(feature)
+                prob = torch.nn.functional.softmax(a_logits, dim=0)
                 sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
                 print("pretrained_sim", sim_list)
 

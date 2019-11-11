@@ -17,6 +17,30 @@ class BaseActor(torch.nn.Module):
     logits = self.bias.weight * feature
     return logits
 
+class LanguageActor(torch.nn.Module):
+  def __init__(self, args, lan_size):
+    super(LanguageActor, self).__init__()
+    self.args = args
+    self.lan_size = lan_size
+    embed_dim = args.data_actor_embed_dim
+    self.lan_emb = Embedding(self.lan_size, embed_dim, None)
+    # init
+    self.w = torch.nn.Linear(embed_dim, embed_dim)
+    self.project_out = torch.nn.Linear(embed_dim, 1)
+    for p in self.w.parameters():
+        torch.nn.init.uniform_(p, -0.1, 0.1)
+    for p in self.project_out.parameters():
+        torch.nn.init.uniform_(p, -0.1, 0.1)
+
+  def forward(self, feature):
+    # input feature is lan id
+    # feature: [1, 1]
+    emb = self.lan_emb(feature)
+    x = self.w(emb)
+    logits = self.project_out(emb).squeeze(2)
+    return logits
+
+
 class AveEmbActor(torch.nn.Module):
     """Average Embedding actor"""
     def __init__(self, args, task, emb=None, optimize_emb=True):
@@ -70,10 +94,11 @@ class AveEmbActor(torch.nn.Module):
             score = torch.exp(self.project_out(inp))
         return score 
 
-def Embedding(num_embeddings, embedding_dim, padding_idx):
+def Embedding(num_embeddings, embedding_dim, padding_idx=None):
     m = torch.nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
     torch.nn.init.uniform_(m.weight, -0.1, 0.1)
-    torch.nn.init.constant_(m.weight[padding_idx], 0)
+    if padding_idx is not None:
+        torch.nn.init.constant_(m.weight[padding_idx], 0)
     return m
 
 

@@ -18,7 +18,7 @@ from .fairseq_model import (
     FairseqModel,
     FairseqMultiModel,
 )
-from .data_actor import BaseActor, AveEmbActor
+from .data_actor import BaseActor, AveEmbActor, LanguageActor
 
 from .composite_encoder import CompositeEncoder
 from .distributed_fairseq_model import DistributedFairseqModel
@@ -44,6 +44,7 @@ __all__ = [
     'FairseqMultiModel',
     'BaseActor',
     'AveEmbActor',
+    'LanguageActor',
 ]
 
 
