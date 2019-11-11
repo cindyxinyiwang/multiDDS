@@ -416,7 +416,37 @@ class Trainer(object):
             else:
                 sim_list = np.mean((all_sim_list - weighted_sim), axis=0).tolist()
             print(sim_list)
+        elif self.args.utility_type == 'ave_minus_baseline_min-half':
+            # find the valid languages with max losses
+            # sort by loss, ascending order
+            sorted_indices = np.argsort(valid_losses)
+            selected_indices = sorted_indices[len(valid_losses)//2:]
+            val_keys = list(self.task.dataset('valid').datasets.keys())
+            print('selected keys:')
+            for k in selected_indices:
+                print(val_keys[k], valid_losses[k])
+            
+            all_sim_list = np.array(all_sim_list)
+            print(all_sim_list)
+            print(self.task.dataset('train').p)
+            current_p = np.array(self.task.dataset('train').p)
+            current_p.resize(1, len(all_sim_list))
+            weighted_sim = all_sim_list * current_p
+            weighted_sim = np.sum(weighted_sim, axis=1)
+            print(weighted_sim)
+            if self.language_weight is not None:
+                sim_list = (all_sim_list - weighted_sim) * self.language_weight
+            else:
+                sim_list = (all_sim_list - weighted_sim)
 
+            sim_list = sim_list.tolist()
+            selected_sim_list = []
+            for k, sim in enumerate(sim_list):
+                if k in selected_indices:
+                    selected_sim_list.append(sim)
+            sim_list = selected_sim_list
+            sim_list = np.mean(sim_list, axis=0).tolist()
+            print(sim_list)
         if self.args.baseline:
             cur_reward = np.array(sim_list)
             if self.baseline is None:
