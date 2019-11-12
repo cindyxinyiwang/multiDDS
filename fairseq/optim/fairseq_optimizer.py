@@ -66,6 +66,22 @@ class FairseqOptimizer(object):
                     state['dev_grad'].div_(extras)
 
 
+    def save_train_grad(self):
+        """Save train set gradient"""
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                if p.grad is None: continue
+                state = self.optimizer.state[p]
+                state['dev_grad'] = p.grad.data.clone() - state['dev_grad']
+
+    def save_train_grad_t0(self):
+        """Save train set gradient"""
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                if p.grad is None: continue
+                state = self.optimizer.state[p]
+                state['dev_grad'] = p.grad.data.clone()
+
     def save_dev_grad(self):
         """Save dev set gradient"""
         for group in self.optimizer.param_groups:

@@ -152,6 +152,7 @@ class MultilingualTranslationTask(FairseqTask):
         # models.build_model(). This allows multitask type of sub-class can
         # build models other than the input lang_pairs
         self.model_lang_pairs = self.lang_pairs
+        self.langpair2id = {l: i for i, l in enumerate(self.model_lang_pairs)}
         self.langs = list(dicts.keys())
 
     @classmethod

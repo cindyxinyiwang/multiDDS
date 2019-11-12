@@ -236,6 +236,8 @@ def get_parser(desc, default_task='translation'):
                         help='whether to scale reward by current p')
     parser.add_argument('--language-weight', type=str, default=None,
                         help='dev language weights separated by comma')
+    parser.add_argument('--data-actor-step-update', action='store_true',
+                        help='whether to update at training step')
 
 
     from fairseq.registry import REGISTRIES

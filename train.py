@@ -71,8 +71,8 @@ def main(args, init_distributed=False):
     extra_state, epoch_itr = checkpoint_utils.load_checkpoint(args, trainer)
 
     # pretrain data actor
-    #if args.pretrain_data_actor:
-    #    trainer.pretrain_data_actor(args)
+    if args.pretrain_data_actor and args.data_actor == 'lan' and args.data_actor_step_update:
+        trainer.pretrain_data_actor()
 
     # Train until the learning rate gets too small
     max_epoch = args.max_epoch or math.inf
@@ -134,6 +134,8 @@ def train(args, trainer, task, epoch_itr, generator=None):
             update_actor = (i % args.extra_update_language_sampling == 0)
         elif args.data_actor == 'ave_emb':
             update_actor = (i % args.update_language_sampling == 0)
+        elif args.data_actor == 'lan' and args.data_actor_step_update:
+            update_actor = (i % args.update_language_sampling == 0)
         else:
             update_actor = False
         log_output = trainer.train_step(samples, update_actor=update_actor)
@@ -141,7 +143,7 @@ def train(args, trainer, task, epoch_itr, generator=None):
             continue
 
         # update sampling distribution
-        if args.update_language_sampling > 0 and i % args.update_language_sampling == 0 and args.data_actor != 'ave_emb':
+        if args.update_language_sampling > 0 and i % args.update_language_sampling == 0 and args.data_actor != 'ave_emb' and not args.data_actor_step_update:
             if args.data_actor_multilin:
                 trainer.update_language_sampler_multilin(args)
             else:
