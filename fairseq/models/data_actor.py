@@ -23,9 +23,13 @@ class LanguageActor(torch.nn.Module):
     self.args = args
     self.lan_size = lan_size
     embed_dim = args.data_actor_embed_dim
-    self.lan_emb = Embedding(self.lan_size, embed_dim, None)
+    if self.args.lan_embed_dim is None:
+        lan_embed_dim = embed_dim 
+    else:
+        lan_embed_dim = self.args.lan_embed_dim 
+    self.lan_emb = Embedding(self.lan_size, lan_embed_dim, None)
     # init
-    self.w = torch.nn.Linear(embed_dim, embed_dim)
+    self.w = torch.nn.Linear(lan_embed_dim, embed_dim)
     self.project_out = torch.nn.Linear(embed_dim, 1)
     for p in self.w.parameters():
         torch.nn.init.uniform_(p, -0.1, 0.1)
@@ -37,7 +41,7 @@ class LanguageActor(torch.nn.Module):
     # feature: [1, 1]
     emb = self.lan_emb(feature)
     x = self.w(emb)
-    logits = self.project_out(emb).squeeze(2)
+    logits = self.project_out(x).squeeze(2)
     return logits
 
 

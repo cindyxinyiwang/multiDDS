@@ -216,6 +216,8 @@ def get_parser(desc, default_task='translation'):
                         help='number of steps to optimize data actor')
     parser.add_argument('--data-actor-embed-dim', type=int, default=32,
                         help='dimension of word embedding for data actor')
+    parser.add_argument('--lan-embed-dim', type=int, default=None,
+                        help='dimension of word embedding for data actor')
     parser.add_argument('--data-actor-model-embed', type=int, default=0,
                         help='[0|1] whether to use model embedding')
     parser.add_argument('--data-actor-embed-grad', type=int, default=1,
