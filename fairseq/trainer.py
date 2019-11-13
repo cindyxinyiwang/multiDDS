@@ -310,40 +310,75 @@ class Trainer(object):
         # #dev dataset x #train dataset
         all_sim_list = []
         valid_losses, train_losses = [], []
-        for i, valid_key in enumerate(self.task.dataset('valid').datasets.keys()):
-            #for _ in range(self.args.loss_steps):
-            valid_sample = self.task.dataset('valid').get_sample_with_key(valid_key)
-            valid_sample = self._prepare_sample(valid_sample)
-            loss, sample_size, logging_output = self.task.train_step(
-                                    valid_sample, self.model, self.criterion, self.optimizer)
-            if sample_size > 0:
-                loss = loss / sample_size
-            valid_losses.append(loss)
-            
-            self.optimizer.save_dev_grad()
-            self.zero_grad()
-            if self.cuda:
-                torch.cuda.empty_cache()
-            sim_list = []
-            for j, key in enumerate(self.task.dataset('train').datasets.keys()):
-                #if args.no_dev and key == valid_key:
-                #    sim_list.append(1.0)
-                #else:
-                #for _ in range(self.args.loss_steps):
-                sample = self.task.dataset('train').get_sample_with_key(key)
-                sample = self._prepare_sample(sample)
-                # calculate sim
+        if self.args.exact_update:
+            self.optimizer.clone_param()
+            for j, train_key in enumerate(self.task.dataset('train').datasets.keys()):
+                train_sample = self.task.dataset('train').get_sample_with_key(train_key)
+                train_sample = self._prepare_sample(train_sample)
                 loss, sample_size, logging_output = self.task.train_step(
-                                        sample, self.model, self.criterion, self.optimizer)
+                                        train_sample, self.model, self.criterion, self.optimizer)
                 if sample_size > 0:
                     loss = loss / sample_size
                 train_losses.append(loss)
-                sim = self.optimizer.get_grad_sim()
-                sim_list.append(sim)
+                self.optimizer.save_train_grad_t0()
                 self.zero_grad()
                 if self.cuda:
                     torch.cuda.empty_cache()
-            all_sim_list.append(sim_list)
+                sim_list = []
+                self.optimizer.add_grad(eta=0.001)
+                for i, valid_key in enumerate(self.task.dataset('valid').datasets.keys()):
+                    sample = self.task.dataset('valid').get_sample_with_key(valid_key)
+                    sample = self._prepare_sample(sample)
+                    # calculate sim
+                    loss, sample_size, logging_output = self.task.train_step(
+                                            sample, self.model, self.criterion, self.optimizer)
+                    if sample_size > 0:
+                        loss = loss / sample_size
+                    valid_losses.append(loss)
+                    sim = self.optimizer.get_grad_sim()
+                    sim_list.append(sim)
+                    self.zero_grad()
+                    if self.cuda:
+                        torch.cuda.empty_cache()
+                self.optimizer.switch_param()
+                all_sim_list.append(sim_list)
+            all_sim_list = np.transpose(np.array(all_sim_list))
+            self.optimizer.switch_param(clear_cache=True)
+        else:
+            for i, valid_key in enumerate(self.task.dataset('valid').datasets.keys()):
+                #for _ in range(self.args.loss_steps):
+                valid_sample = self.task.dataset('valid').get_sample_with_key(valid_key)
+                valid_sample = self._prepare_sample(valid_sample)
+                loss, sample_size, logging_output = self.task.train_step(
+                                        valid_sample, self.model, self.criterion, self.optimizer)
+                if sample_size > 0:
+                    loss = loss / sample_size
+                valid_losses.append(loss)
+                
+                self.optimizer.save_dev_grad()
+                self.zero_grad()
+                if self.cuda:
+                    torch.cuda.empty_cache()
+                sim_list = []
+                for j, key in enumerate(self.task.dataset('train').datasets.keys()):
+                    #if args.no_dev and key == valid_key:
+                    #    sim_list.append(1.0)
+                    #else:
+                    #for _ in range(self.args.loss_steps):
+                    sample = self.task.dataset('train').get_sample_with_key(key)
+                    sample = self._prepare_sample(sample)
+                    # calculate sim
+                    loss, sample_size, logging_output = self.task.train_step(
+                                            sample, self.model, self.criterion, self.optimizer)
+                    if sample_size > 0:
+                        loss = loss / sample_size
+                    train_losses.append(loss)
+                    sim = self.optimizer.get_grad_sim()
+                    sim_list.append(sim)
+                    self.zero_grad()
+                    if self.cuda:
+                        torch.cuda.empty_cache()
+                all_sim_list.append(sim_list)
         if args.pretrain_data_actor and not self.pretrained:
             if self.args.feature_type == 'ones':
                 feature = torch.ones(1, len(self.task.dataset('train').datasets.keys()))
@@ -526,15 +561,17 @@ class Trainer(object):
             print('feature')
             print(feature)
             grad_scale = torch.FloatTensor(sim_list).view(1, -1)
-
             if self.cuda:
                 feature = feature.cuda()
                 grad_scale = grad_scale.cuda()
+            if self.args.scale_reward:
+                a_logits = self.data_actor.forward(feature)
+                scale_reward = torch.softmax(a_logits, dim=-1).data
             for _ in range(self.args.data_actor_optim_step):
                 a_logits = self.data_actor.forward(feature)
                 loss = -torch.nn.functional.log_softmax(a_logits, dim=-1)
                 if self.args.scale_reward:
-                    loss = loss * torch.softmax(a_logits, dim=-1).data
+                    loss = loss * scale_reward
                 loss = (loss * grad_scale).sum()
                 loss.backward()
                 self.data_optimizer.step()

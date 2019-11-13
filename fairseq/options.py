@@ -238,6 +238,8 @@ def get_parser(desc, default_task='translation'):
                         help='dev language weights separated by comma')
     parser.add_argument('--data-actor-step-update', action='store_true',
                         help='whether to update at training step')
+    parser.add_argument('--exact-update', action='store_true',
+                        help='whether to do exact update in the approximate setting')
 
 
     from fairseq.registry import REGISTRIES
