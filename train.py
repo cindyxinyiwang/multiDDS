@@ -115,67 +115,79 @@ def train(args, trainer, task, epoch_itr, generator=None):
     # Update parameters every N batches
     update_freq = args.update_freq[epoch_itr.epoch - 1] \
         if epoch_itr.epoch <= len(args.update_freq) else args.update_freq[-1]
-
-    # Initialize data iterator
-    itr = epoch_itr.next_epoch_itr(
-        fix_batches_to_gpus=args.fix_batches_to_gpus,
-        shuffle=(epoch_itr.epoch >= args.curriculum),
-    )
-    itr = iterators.GroupedIterator(itr, update_freq)
-    progress = progress_bar.build_progress_bar(
-        args, itr, epoch_itr.epoch, no_progress_bar='simple',
-    )
-
     extra_meters = collections.defaultdict(lambda: AverageMeter())
     valid_subsets = args.valid_subset.split(',')
     max_update = args.max_update or math.inf
-    for i, samples in enumerate(progress, start=epoch_itr.iterations_in_epoch):
-        if args.extra_data_actor == 'ave_emb':
-            update_actor = (i % args.extra_update_language_sampling == 0)
-        elif args.data_actor == 'ave_emb':
-            update_actor = (i % args.update_language_sampling == 0)
-        elif args.data_actor == 'lan' and args.data_actor_step_update:
-            update_actor = (i % args.update_language_sampling == 0)
-        else:
-            update_actor = False
-        log_output = trainer.train_step(samples, update_actor=update_actor)
-        if log_output is None:
-            continue
 
-        # update sampling distribution
-        if args.update_language_sampling > 0 and i % args.update_language_sampling == 0 and args.data_actor != 'ave_emb' and not args.data_actor_step_update:
-            if args.data_actor_multilin:
-                trainer.update_language_sampler_multilin(args)
+    if args.update_language_sampling > 0:
+        num_reset = len(epoch_itr.frozen_batches) // (args.update_language_sampling*args.update_freq[0]+1)
+        datasize = args.update_language_sampling*args.update_freq[0]+1
+        if num_reset * datasize < len(epoch_itr.frozen_batches):
+            num_reset += 1
+    else:
+        num_reset = 1
+        datasize = -1
+    for reset_idx in range(num_reset):
+        print("resetting at step", reset_idx)
+        # Initialize data iterator
+        itr = epoch_itr.next_epoch_itr(
+            fix_batches_to_gpus=args.fix_batches_to_gpus,
+            shuffle=(epoch_itr.epoch >= args.curriculum),
+            offset=reset_idx*(args.update_language_sampling*args.update_freq[0]+1),
+            datasize=datasize,
+        )
+        itr = iterators.GroupedIterator(itr, update_freq)
+        progress = progress_bar.build_progress_bar(
+            args, itr, epoch_itr.epoch, no_progress_bar='simple',
+        )
+
+        for i, samples in enumerate(progress, start=epoch_itr.iterations_in_epoch):
+            if args.extra_data_actor == 'ave_emb':
+                update_actor = (i % args.extra_update_language_sampling == 0)
+            elif args.data_actor == 'ave_emb':
+                update_actor = (i % args.update_language_sampling == 0)
+            elif args.data_actor == 'lan' and args.data_actor_step_update:
+                update_actor = (i % args.update_language_sampling == 0)
             else:
-                trainer.update_language_sampler(args)
-        # log mid-epoch stats
-        stats = get_training_stats(trainer)
-        for k, v in log_output.items():
-            if k in ['loss', 'nll_loss', 'ntokens', 'nsentences', 'sample_size']:
-                continue  # these are already logged above
-            if 'loss' in k or k == 'accuracy':
-                extra_meters[k].update(v, log_output['sample_size'])
-            else:
-                extra_meters[k].update(v)
-            stats[k] = extra_meters[k].avg
-        progress.log(stats, tag='train', step=stats['num_updates'])
+                update_actor = False
+            log_output = trainer.train_step(samples, update_actor=update_actor)
+            if log_output is None:
+                continue
 
-        # ignore the first mini-batch in words-per-second calculation
-        if i == 0:
-            trainer.get_meter('wps').reset()
+            # update sampling distribution
+            if args.update_language_sampling > 0 and i % args.update_language_sampling == 0 and args.data_actor != 'ave_emb' and not args.data_actor_step_update:
+                if args.data_actor_multilin:
+                    trainer.update_language_sampler_multilin(args)
+                else:
+                    trainer.update_language_sampler(args)
+            # log mid-epoch stats
+            stats = get_training_stats(trainer)
+            for k, v in log_output.items():
+                if k in ['loss', 'nll_loss', 'ntokens', 'nsentences', 'sample_size']:
+                    continue  # these are already logged above
+                if 'loss' in k or k == 'accuracy':
+                    extra_meters[k].update(v, log_output['sample_size'])
+                else:
+                    extra_meters[k].update(v)
+                stats[k] = extra_meters[k].avg
+            progress.log(stats, tag='train', step=stats['num_updates'])
 
-        num_updates = trainer.get_num_updates()
-        if (
-            not args.disable_validation
-            and args.save_interval_updates > 0
-            and num_updates % args.save_interval_updates == 0
-            and num_updates > 0
-        ):
-            valid_losses = validate(args, trainer, task, epoch_itr, valid_subsets, generator)
-            checkpoint_utils.save_checkpoint(args, trainer, epoch_itr, valid_losses[0])
+            # ignore the first mini-batch in words-per-second calculation
+            if i == 0:
+                trainer.get_meter('wps').reset()
 
-        if num_updates >= max_update:
-            break
+            num_updates = trainer.get_num_updates()
+            if (
+                not args.disable_validation
+                and args.save_interval_updates > 0
+                and num_updates % args.save_interval_updates == 0
+                and num_updates > 0
+            ):
+                valid_losses = validate(args, trainer, task, epoch_itr, valid_subsets, generator)
+                checkpoint_utils.save_checkpoint(args, trainer, epoch_itr, valid_losses[0])
+
+            if num_updates >= max_update:
+                break
 
     # log end-of-epoch stats
     stats = get_training_stats(trainer)

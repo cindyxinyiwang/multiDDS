@@ -162,7 +162,7 @@ class EpochBatchIterator(EpochBatchIterating):
     def __len__(self):
         return len(self.frozen_batches)
 
-    def next_epoch_itr(self, shuffle=True, fix_batches_to_gpus=False):
+    def next_epoch_itr(self, shuffle=True, fix_batches_to_gpus=False, offset=0, datasize=-1):
         """Return a new iterator over the dataset.
 
         Args:
@@ -176,9 +176,11 @@ class EpochBatchIterator(EpochBatchIterating):
             self._cur_epoch_itr = self._next_epoch_itr
             self._next_epoch_itr = None
         else:
-            self.epoch += 1
+            if offset == 0:
+                self.epoch += 1
+            print(offset, datasize, self.epoch)
             self._cur_epoch_itr = self._get_iterator_for_epoch(
-                self.epoch, shuffle, fix_batches_to_gpus=fix_batches_to_gpus,
+                self.epoch, shuffle, fix_batches_to_gpus=fix_batches_to_gpus, offset=offset, datasize=datasize,
             )
         self.dataset.set_epoch(self.epoch)
         return self._cur_epoch_itr
@@ -215,7 +217,7 @@ class EpochBatchIterator(EpochBatchIterating):
                 offset=itr_pos,
             )
 
-    def _get_iterator_for_epoch(self, epoch, shuffle, fix_batches_to_gpus=False, offset=0):
+    def _get_iterator_for_epoch(self, epoch, shuffle, fix_batches_to_gpus=False, offset=0, datasize=-1):
 
         def shuffle_batches(batches, seed):
             # set seed based on the seed and epoch number so that we get
@@ -223,7 +225,8 @@ class EpochBatchIterator(EpochBatchIterating):
             with data_utils.numpy_seed(seed):
                 np.random.shuffle(batches)
             return batches
-
+        if datasize != -1 and offset != 0:
+            shuffle = False
         if self._supports_prefetch:
             batches = self.frozen_batches
 
@@ -245,18 +248,24 @@ class EpochBatchIterator(EpochBatchIterating):
             batches = list(ShardedIterator(
                 batches, self.num_shards, self.shard_id, fill_value=[]
             ))
-
+        if offset == 0 and datasize != -1:
+            self.shuffled = batches
+        if datasize != -1 and offset != 0:
+            batches = self.shuffled
         if offset > 0 and offset >= len(batches):
             return None
 
         if self.num_workers > 0:
             os.environ['PYTHONWARNINGS'] = 'ignore:semaphore_tracker:UserWarning'
-
+        if datasize > 0:
+            sampler = batches[offset:min(offset+datasize, len(batches))]
+        else:
+            sampler = batches[offset:]
         return CountingIterator(
             torch.utils.data.DataLoader(
                 self.dataset,
                 collate_fn=self.collate_fn,
-                batch_sampler=batches[offset:],
+                batch_sampler=sampler,
                 num_workers=self.num_workers,
             ),
             start=offset,
