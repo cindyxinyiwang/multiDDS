@@ -335,7 +335,7 @@ class Trainer(object):
                     if sample_size > 0:
                         loss = loss / sample_size
                     valid_losses.append(loss)
-                    sim = self.optimizer.get_grad_sim()
+                    sim, cur_grad_sim, prev_grad_sim = self.optimizer.get_grad_sim()
                     sim_list.append(sim)
                     self.zero_grad()
                     if self.cuda:
@@ -373,7 +373,7 @@ class Trainer(object):
                     if sample_size > 0:
                         loss = loss / sample_size
                     train_losses.append(loss)
-                    sim = self.optimizer.get_grad_sim()
+                    sim, cur_grad_sim, prev_grad_sim = self.optimizer.get_grad_sim()
                     sim_list.append(sim)
                     self.zero_grad()
                     if self.cuda:
@@ -618,28 +618,61 @@ class Trainer(object):
         #    #self.optimizer.zero_grad()
         #    break
         #self.zero_grad()
-        for i, valid_key in enumerate(self.task.dataset('valid').datasets.keys()):
-            #for _ in range(self.args.loss_steps):
-            valid_sample = self.task.dataset('valid').get_sample_with_key(valid_key)
-            valid_sample = self._prepare_sample(valid_sample)
-            loss, sample_size, logging_output = self.task.train_step(
-                                    valid_sample, self.model, self.criterion, self.optimizer)
-            
-        self.optimizer.save_dev_grad()
-        self.zero_grad()
-
-        sim_list = []
+        sim_list, all_sim_list = [], []
+        norm_list, all_norm_list = [], []
+        self.optimizer.clone_param()
         for i, key in enumerate(self.task.dataset('train').datasets.keys()):
+            #for _ in range(self.args.loss_steps):
             sample = self.task.dataset('train').get_sample_with_key(key)
             sample = self._prepare_sample(sample)
-            # calculate sim
             loss, sample_size, logging_output = self.task.train_step(
                                     sample, self.model, self.criterion, self.optimizer)
-            #if args.no_dev and i == 0:
-            self.optimizer.save_dev_grad()
-            sim = self.optimizer.get_grad_sim()
-            sim_list.append(sim)
+            self.optimizer.save_train_grad_t0()
             self.zero_grad()
+            self.optimizer.add_grad(eta=0.001)
+            valid_samples = []
+            for i, valid_key in enumerate(self.task.dataset('valid').datasets.keys()):
+                valid_sample = self.task.dataset('valid').get_sample_with_key(valid_key)
+                valid_sample = self._prepare_sample(valid_sample)
+                # calculate sim
+                loss, sample_size, logging_output = self.task.train_step(
+                                        valid_sample, self.model, self.criterion, self.optimizer)
+                valid_samples.append(valid_sample)
+            sim, cur_cosine_norm, prev_cosine_norm = self.optimizer.get_grad_sim()
+            sim_list.append(sim)
+            norm_list.append(cur_cosine_norm)
+            self.zero_grad()
+            # record new dds for logging
+            cur_sim_list, cur_norm_list = [], []
+            for i, valid_sample in enumerate(valid_samples):
+                loss, sample_size, logging_output = self.task.train_step(
+                                        valid_sample, self.model, self.criterion, self.optimizer)
+                sim, cur_cosine_norm, prev_cosine_norm = self.optimizer.get_grad_sim()
+                cur_sim_list.append(sim)
+                cur_norm_list.append(cur_cosine_norm)
+                self.zero_grad()
+            all_sim_list.append(cur_sim_list)
+            all_norm_list.append(cur_norm_list)
+
+            self.optimizer.switch_param()
+        self.optimizer.switch_param(clear_cache=True)
+        # logging
+        # first log regular dds
+        print("regular dds reward:")
+        print(" ".join([str(s) for s in sim_list]))
+        print("regular dds norm:")
+        print(" ".join([str(s.item()) for s in norm_list]))
+        # second log new dds
+        all_sim_list = np.transpose(np.array(all_sim_list))
+        all_norm_list = np.transpose(np.array(all_norm_list))
+        print("new dds reward list:")
+        for l in all_sim_list:
+            print(" ".join([str(s) for s in l]))
+        print("new dds norm:")
+        for l in all_norm_list:
+            print(" ".join([str(s.item()) for s in l]))
+        print("new dds reward list:")
+        print(" ".join([str(s) for s in np.mean(all_sim_list, axis=0)]))
 
         if args.pretrain_data_actor and not self.pretrained:
             if self.args.feature_type == 'ones':
@@ -655,7 +688,6 @@ class Trainer(object):
                 exit(1)
             self.pretrained = True
             self.pretrain_data_actor(feature)
-
         if self.args.data_actor == 'base':
             feature = torch.ones(1, len(self.task.dataset('train').datasets.keys()))
             grad_scale = torch.FloatTensor(sim_list).view(1, -1)
