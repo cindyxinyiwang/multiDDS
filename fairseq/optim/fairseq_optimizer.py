@@ -129,10 +129,10 @@ class FairseqOptimizer(object):
                 dev_cosine_norm += state['dev_grad'].norm(2) ** 2
         if self.args.grad_sim == "cosine":
             cosine_sim = cosine_prod / ((cosine_norm*dev_cosine_norm)**0.5 + 1e-10)
-            return cosine_sim.item()
+            return cosine_sim.item(), cosine_norm, dev_cosine_norm
         elif self.args.grad_sim == "dot_prod":
             cosine_sim = cosine_prod 
-            return cosine_sim
+            return cosine_sim, cosine_norm, dev_cosine_norm
 
     def __getstate__(self):
         return self._optimizer.__getstate__()
