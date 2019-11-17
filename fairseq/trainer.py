@@ -319,7 +319,8 @@ class Trainer(object):
                                         train_sample, self.model, self.criterion, self.optimizer)
                 if sample_size > 0:
                     loss = loss / sample_size
-                train_losses.append(loss)
+                if j == 0:
+                  train_losses.append(loss)
                 self.optimizer.save_train_grad_t0()
                 self.zero_grad()
                 if self.cuda:
@@ -334,7 +335,6 @@ class Trainer(object):
                                             sample, self.model, self.criterion, self.optimizer)
                     if sample_size > 0:
                         loss = loss / sample_size
-                    valid_losses.append(loss)
                     sim, cur_grad_sim, prev_grad_sim = self.optimizer.get_grad_sim()
                     if j==0:
                         valid_losses.append(loss)
@@ -423,6 +423,16 @@ class Trainer(object):
                 all_sim_list = np.array(all_sim_list) * self.language_weight
             sorted_indices = np.argsort(valid_losses)
             selected_index = sorted_indices[len(valid_losses)//2]
+            val_keys = list(self.task.dataset('valid').datasets.keys())
+            print('selected keys:')
+            print(val_keys[selected_index], valid_losses[selected_index])
+            sim_list = all_sim_list[selected_index]
+            print(sim_list)
+        elif self.args.utility_type == 'min':
+            if self.language_weight is not None:
+                all_sim_list = np.array(all_sim_list) * self.language_weight
+            sorted_indices = np.argsort(valid_losses)
+            selected_index = sorted_indices[-1]
             val_keys = list(self.task.dataset('valid').datasets.keys())
             print('selected keys:')
             print(val_keys[selected_index], valid_losses[selected_index])
