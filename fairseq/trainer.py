@@ -338,7 +338,6 @@ class Trainer(object):
                     sim, cur_grad_sim, prev_grad_sim = self.optimizer.get_grad_sim()
                     if j==0:
                         valid_losses.append(loss)
-                    sim = self.optimizer.get_grad_sim()
                     sim_list.append(sim)
                     self.zero_grad()
                     if self.cuda:
