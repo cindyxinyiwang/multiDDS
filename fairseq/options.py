@@ -242,6 +242,8 @@ def get_parser(desc, default_task='translation'):
                         help='whether to update at training step')
     parser.add_argument('--exact-update', action='store_true',
                         help='whether to do exact update in the approximate setting')
+    parser.add_argument('--loss-weight', type=str, default=None,
+                        help='[low|]')
 
 
     from fairseq.registry import REGISTRIES
