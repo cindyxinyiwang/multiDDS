@@ -64,7 +64,36 @@ class FairseqOptimizer(object):
                 state = self.optimizer.state[p]
                 if utility == 'ave':
                     state['dev_grad'].div_(extras)
+    
+    def save_train_grad_id(self, i):
+        """Save train set gradient"""
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                if p.grad is None: continue
+                state = self.optimizer.state[p]
+                if 'train_grad' not in state:
+                    state['train_grad'] = [None for _ in range(len(self.args.lang_pairs))]
+                if state['train_grad'][i] is None:
+                    state['train_grad'][i] = p.grad.data.clone()
+                else:
+                    state['train_grad'][i] = 0.95*p.grad.data + 0.05*state['train_grad'][i]
 
+    def get_grad_sim_id(self, i):
+        """Get gradient similarity with dev set gradient"""
+        cosine_prod, cosine_norm, dev_cosine_norm = 0, 0, 0
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                if p.grad is None: continue
+                state = self.optimizer.state[p]
+                cosine_prod += (state['train_grad'][i] * p.grad.data).sum().item()
+                cosine_norm += p.grad.data.norm(2) ** 2
+                dev_cosine_norm += state['train_grad'][i].norm(2) ** 2
+        if self.args.grad_sim == "cosine":
+            cosine_sim = cosine_prod / ((cosine_norm*dev_cosine_norm)**0.5 + 1e-10)
+            return cosine_sim.item(), cosine_norm, dev_cosine_norm
+        elif self.args.grad_sim == "dot_prod":
+            cosine_sim = cosine_prod 
+            return cosine_sim, cosine_norm, dev_cosine_norm
 
     def save_train_grad(self):
         """Save train set gradient"""
