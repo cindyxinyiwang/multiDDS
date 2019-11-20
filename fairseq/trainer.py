@@ -690,42 +690,76 @@ class Trainer(object):
         #self.zero_grad()
         sim_list, all_sim_list = [], []
         norm_list, all_norm_list = [], []
-        self.optimizer.clone_param()
-        for i, key in enumerate(self.task.dataset('train').datasets.keys()):
-            #for _ in range(self.args.loss_steps):
-            sample = self.task.dataset('train').get_sample_with_key(key)
-            sample = self._prepare_sample(sample)
-            loss, sample_size, logging_output = self.task.train_step(
-                                    sample, self.model, self.criterion, self.optimizer)
-            self.optimizer.save_train_grad_t0()
-            self.zero_grad()
-            self.optimizer.add_grad(eta=0.001)
-            valid_samples = []
-            for i, valid_key in enumerate(self.task.dataset('valid').datasets.keys()):
-                valid_sample = self.task.dataset('valid').get_sample_with_key(valid_key)
-                valid_sample = self._prepare_sample(valid_sample)
-                # calculate sim
-                loss, sample_size, logging_output = self.task.train_step(
-                                        valid_sample, self.model, self.criterion, self.optimizer)
-                valid_samples.append(valid_sample)
-            sim, cur_cosine_norm, prev_cosine_norm = self.optimizer.get_grad_sim()
-            sim_list.append(sim)
-            norm_list.append(cur_cosine_norm)
-            self.zero_grad()
-            # record new dds for logging
-            cur_sim_list, cur_norm_list = [], []
-            for i, valid_sample in enumerate(valid_samples):
-                loss, sample_size, logging_output = self.task.train_step(
-                                        valid_sample, self.model, self.criterion, self.optimizer)
-                sim, cur_cosine_norm, prev_cosine_norm = self.optimizer.get_grad_sim()
-                cur_sim_list.append(sim)
-                cur_norm_list.append(cur_cosine_norm)
-                self.zero_grad()
-            all_sim_list.append(cur_sim_list)
-            all_norm_list.append(cur_norm_list)
 
-            self.optimizer.switch_param()
-        self.optimizer.switch_param(clear_cache=True)
+        if self.args.discount_grad:
+            for i, key in enumerate(self.task.dataset('train').datasets.keys()):
+                #for _ in range(self.args.loss_steps):
+                sample = self.task.dataset('train').get_sample_with_key(key)
+                sample = self._prepare_sample(sample)
+                loss, sample_size, logging_output = self.task.train_step(
+                                        sample, self.model, self.criterion, self.optimizer)
+                self.optimizer.save_train_grad_id(i)
+                self.zero_grad()
+                valid_samples = []
+                for j, valid_key in enumerate(self.task.dataset('valid').datasets.keys()):
+                    valid_sample = self.task.dataset('valid').get_sample_with_key(valid_key)
+                    valid_sample = self._prepare_sample(valid_sample)
+                    # calculate sim
+                    loss, sample_size, logging_output = self.task.train_step(
+                                            valid_sample, self.model, self.criterion, self.optimizer)
+                    valid_samples.append(valid_sample)
+                sim, cur_cosine_norm, prev_cosine_norm = self.optimizer.get_grad_sim_id(i)
+                sim_list.append(sim)
+                norm_list.append(cur_cosine_norm)
+                self.zero_grad()
+                # record new dds for logging
+                cur_sim_list, cur_norm_list = [], []
+                for j, valid_sample in enumerate(valid_samples):
+                    loss, sample_size, logging_output = self.task.train_step(
+                                            valid_sample, self.model, self.criterion, self.optimizer)
+                    sim, cur_cosine_norm, prev_cosine_norm = self.optimizer.get_grad_sim_id(i)
+                    cur_sim_list.append(sim)
+                    cur_norm_list.append(cur_cosine_norm)
+                    self.zero_grad()
+                all_sim_list.append(cur_sim_list)
+                all_norm_list.append(cur_norm_list)
+        else:
+            self.optimizer.clone_param()
+            for i, key in enumerate(self.task.dataset('train').datasets.keys()):
+                #for _ in range(self.args.loss_steps):
+                sample = self.task.dataset('train').get_sample_with_key(key)
+                sample = self._prepare_sample(sample)
+                loss, sample_size, logging_output = self.task.train_step(
+                                        sample, self.model, self.criterion, self.optimizer)
+                self.optimizer.save_train_grad_t0()
+                self.zero_grad()
+                self.optimizer.add_grad(eta=0.001)
+                valid_samples = []
+                for j, valid_key in enumerate(self.task.dataset('valid').datasets.keys()):
+                    valid_sample = self.task.dataset('valid').get_sample_with_key(valid_key)
+                    valid_sample = self._prepare_sample(valid_sample)
+                    # calculate sim
+                    loss, sample_size, logging_output = self.task.train_step(
+                                            valid_sample, self.model, self.criterion, self.optimizer)
+                    valid_samples.append(valid_sample)
+                sim, cur_cosine_norm, prev_cosine_norm = self.optimizer.get_grad_sim()
+                sim_list.append(sim)
+                norm_list.append(cur_cosine_norm)
+                self.zero_grad()
+                # record new dds for logging
+                cur_sim_list, cur_norm_list = [], []
+                for i, valid_sample in enumerate(valid_samples):
+                    loss, sample_size, logging_output = self.task.train_step(
+                                            valid_sample, self.model, self.criterion, self.optimizer)
+                    sim, cur_cosine_norm, prev_cosine_norm = self.optimizer.get_grad_sim()
+                    cur_sim_list.append(sim)
+                    cur_norm_list.append(cur_cosine_norm)
+                    self.zero_grad()
+                all_sim_list.append(cur_sim_list)
+                all_norm_list.append(cur_norm_list)
+
+                self.optimizer.switch_param()
+            self.optimizer.switch_param(clear_cache=True)
         # logging
         # first log regular dds
         print("regular dds reward:")
@@ -933,7 +967,11 @@ class Trainer(object):
                                 self.optimizer.save_train_grad()
                         else:
                             self.optimizer.save_train_grad_t0()
-
+                    if self.args.discount_grad:
+                        if i == 0:
+                            train_lan_id = self.task.langpair2id[list(sample.keys())[0]]
+                            self.optimizer.save_train_grad_id(train_lan_id)
+                        
                 if not ignore_grad:
                     logging_outputs.append(logging_output)
                     sample_sizes.append(sample_size)
