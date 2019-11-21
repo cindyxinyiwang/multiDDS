@@ -250,7 +250,8 @@ def get_parser(desc, default_task='translation'):
                         help='[low|]')
     parser.add_argument('--a1', type=float, default=0.95,
                         help='[low|]')
-
+    parser.add_argument('--switch-obj-epoch', type=int, default=1,
+                        help='the epoch to update val loss to trainer')
 
     from fairseq.registry import REGISTRIES
     for registry_name, REGISTRY in REGISTRIES.items():
