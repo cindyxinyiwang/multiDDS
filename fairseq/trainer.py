@@ -348,6 +348,39 @@ class Trainer(object):
                 all_sim_list.append(sim_list)
             all_sim_list = np.transpose(np.array(all_sim_list))
             self.optimizer.switch_param(clear_cache=True)
+        elif self.args.discount_grad:
+            for j, train_key in enumerate(self.task.dataset('train').datasets.keys()):
+                train_sample = self.task.dataset('train').get_sample_with_key(train_key)
+                train_sample = self._prepare_sample(train_sample)
+                loss, sample_size, logging_output = self.task.train_step(
+                                        train_sample, self.model, self.criterion, self.optimizer)
+                if sample_size > 0:
+                    loss = loss / sample_size
+                if j == 0:
+                  train_losses.append(loss)
+                self.optimizer.save_train_grad_id(j)
+                self.zero_grad()
+                if self.cuda:
+                    torch.cuda.empty_cache()
+                sim_list = []
+                for i, valid_key in enumerate(self.task.dataset('valid').datasets.keys()):
+                    sample = self.task.dataset('valid').get_sample_with_key(valid_key)
+                    sample = self._prepare_sample(sample)
+                    # calculate sim
+                    loss, sample_size, logging_output = self.task.train_step(
+                                            sample, self.model, self.criterion, self.optimizer)
+                    if sample_size > 0:
+                        loss = loss / sample_size
+                    sim, cur_grad_sim, prev_grad_sim = self.optimizer.get_grad_sim_id(i)
+                    if j==0:
+                        valid_losses.append(loss)
+                    sim_list.append(sim)
+                    self.zero_grad()
+                    if self.cuda:
+                        torch.cuda.empty_cache()
+                all_sim_list.append(sim_list)
+            all_sim_list = np.transpose(np.array(all_sim_list))
+
         else:
             for i, valid_key in enumerate(self.task.dataset('valid').datasets.keys()):
                 #for _ in range(self.args.loss_steps):
@@ -967,10 +1000,10 @@ class Trainer(object):
                                 self.optimizer.save_train_grad()
                         else:
                             self.optimizer.save_train_grad_t0()
-                    if self.args.discount_grad:
-                        if i == 0:
-                            train_lan_id = self.task.langpair2id[list(sample.keys())[0]]
-                            self.optimizer.save_train_grad_id(train_lan_id)
+                    #if self.args.discount_grad:
+                    #    if i == 0:
+                    #        train_lan_id = self.task.langpair2id[list(sample.keys())[0]]
+                    #        self.optimizer.save_train_grad_id(train_lan_id)
                         
                 if not ignore_grad:
                     logging_outputs.append(logging_output)

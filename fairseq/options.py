@@ -246,6 +246,10 @@ def get_parser(desc, default_task='translation'):
                         help='[low|]')
     parser.add_argument('--discount-grad', action='store_true',
                         help='whether to use the default discount grad')
+    parser.add_argument('--a0', type=float, default=0.05,
+                        help='[low|]')
+    parser.add_argument('--a1', type=float, default=0.95,
+                        help='[low|]')
 
 
     from fairseq.registry import REGISTRIES
