@@ -371,7 +371,7 @@ class Trainer(object):
                                             sample, self.model, self.criterion, self.optimizer)
                     if sample_size > 0:
                         loss = loss / sample_size
-                    sim, cur_grad_sim, prev_grad_sim = self.optimizer.get_grad_sim_id(i)
+                    sim, cur_grad_sim, prev_grad_sim = self.optimizer.get_grad_sim_id(j)
                     if j==0:
                         valid_losses.append(loss)
                     sim_list.append(sim)
