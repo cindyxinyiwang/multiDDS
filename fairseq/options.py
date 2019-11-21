@@ -246,6 +246,8 @@ def get_parser(desc, default_task='translation'):
                         help='[low|]')
     parser.add_argument('--discount-grad', action='store_true',
                         help='whether to use the default discount grad')
+    parser.add_argument('--switch-obj-epoch', type=int, default=1,
+                        help='the epoch to update val loss to trainer')
 
 
     from fairseq.registry import REGISTRIES
