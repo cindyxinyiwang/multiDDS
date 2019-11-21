@@ -465,7 +465,7 @@ class Trainer(object):
                         losses.append(self.valid_losses[val_key])
                     losses = np.array(losses)
                     sorted_indices = np.argsort(losses)
-                    selected_indices = sorted_indices[len(losses)//2+1:]
+                    selected_indices = sorted_indices[len(losses)//2:]
                     val_keys = list(self.task.dataset('valid').datasets.keys())
                     selected_sim_list = []
                     print('selected keys:')
