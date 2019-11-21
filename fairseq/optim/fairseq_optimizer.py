@@ -76,8 +76,8 @@ class FairseqOptimizer(object):
                 if state['train_grad'][i] is None:
                     state['train_grad'][i] = p.grad.data.clone()
                 else:
-                    state['train_grad'][i] = p.grad.data.clone()
-                    #state['train_grad'][i] = self.args.a1*p.grad.data + self.args.a0*state['train_grad'][i]
+                    #state['train_grad'][i] = p.grad.data.clone()
+                    state['train_grad'][i] = self.args.a1*p.grad.data + self.args.a0*state['train_grad'][i]
 
     def get_grad_sim_id(self, i):
         """Get gradient similarity with dev set gradient"""
