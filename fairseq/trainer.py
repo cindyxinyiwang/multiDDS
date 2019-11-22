@@ -371,7 +371,7 @@ class Trainer(object):
                                             sample, self.model, self.criterion, self.optimizer)
                     if sample_size > 0:
                         loss = loss / sample_size
-                    sim, cur_grad_sim, prev_grad_sim = self.optimizer.get_grad_sim_id(i)
+                    sim, cur_grad_sim, prev_grad_sim = self.optimizer.get_grad_sim_id(j)
                     if j==0:
                         valid_losses.append(loss)
                     sim_list.append(sim)
@@ -1038,10 +1038,10 @@ class Trainer(object):
                                 self.optimizer.save_train_grad()
                         else:
                             self.optimizer.save_train_grad_t0()
-                    #if self.args.discount_grad:
-                    #    if i == 0:
-                    #        train_lan_id = self.task.langpair2id[list(sample.keys())[0]]
-                    #        self.optimizer.save_train_grad_id(train_lan_id)
+                    if self.args.discount_grad:
+                        if i == 0:
+                            train_lan_id = self.task.langpair2id[list(sample.keys())[0]]
+                            self.optimizer.save_train_grad_id(train_lan_id)
                         
                 if not ignore_grad:
                     logging_outputs.append(logging_output)
