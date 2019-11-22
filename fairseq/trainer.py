@@ -489,6 +489,44 @@ class Trainer(object):
                         selected_sim_list.append(sim)
                 sim_list = np.mean(np.array(selected_sim_list), axis=0).tolist()
             print(sim_list)
+        elif self.args.utility_type == 'max-half':
+            # find the valid languages with max losses
+            # sort by loss, ascending order
+            if self.language_weight is not None:
+                all_sim_list = np.array(all_sim_list) * self.language_weight
+            if self.args.loss_weight is not None:
+                if len(self.valid_losses) != 0: 
+                    losses = []
+                    for val_key in self.task.dataset('valid').datasets.keys():
+                        print(val_key, self.valid_losses[val_key])
+                        losses.append(self.valid_losses[val_key])
+                    losses = np.array(losses)
+                    sorted_indices = np.argsort(losses)
+                    selected_indices = sorted_indices[:len(losses)//2]
+                    val_keys = list(self.task.dataset('valid').datasets.keys())
+                    selected_sim_list = []
+                    print('selected keys:')
+                    for k, sim in enumerate(all_sim_list):
+                        if k in selected_indices:
+                            selected_sim_list.append(sim)
+                            print(val_keys[k], losses[k])
+                    sim_list = np.mean(np.array(selected_sim_list), axis=0).tolist()
+                else:
+                    sim_list = np.mean(np.array(all_sim_list), axis=0).tolist()
+            else:
+                sorted_indices = np.argsort(valid_losses)
+                selected_indices = sorted_indices[len(valid_losses)//2:]
+                val_keys = list(self.task.dataset('valid').datasets.keys())
+                print('selected keys:')
+                for k in selected_indices:
+                    print(val_keys[k], valid_losses[k])
+                selected_sim_list = []
+                for k, sim in enumerate(all_sim_list):
+                    if k in selected_indices:
+                        selected_sim_list.append(sim)
+                sim_list = np.mean(np.array(selected_sim_list), axis=0).tolist()
+            print(sim_list)
+
         elif self.args.utility_type == 'median':
             if self.language_weight is not None:
                 all_sim_list = np.array(all_sim_list) * self.language_weight
