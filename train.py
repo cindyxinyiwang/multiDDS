@@ -157,7 +157,7 @@ def train(args, trainer, task, epoch_itr, generator=None):
             # update sampling distribution
             if args.update_language_sampling > 0 and i % args.update_language_sampling == 0 and args.data_actor != 'ave_emb' and not args.data_actor_step_update:
                 if args.data_actor_multilin:
-                    trainer.update_language_sampler_multilin(args)
+                    trainer.update_language_sampler_multilin(args, epoch=epoch_itr.epoch)
                 else:
                     trainer.update_language_sampler(args)
             # log mid-epoch stats

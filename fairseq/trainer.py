@@ -300,7 +300,7 @@ class Trainer(object):
 
         return extra_state
 
-    def update_language_sampler_multilin(self, args):
+    def update_language_sampler_multilin(self, args, epoch):
         """Update the distribution to sample languages """
         # calculate gradient direction
         # calculate dev grad
@@ -311,7 +311,10 @@ class Trainer(object):
 
         # #dev dataset x #train dataset
         all_sim_list = []
-        valid_losses, train_losses = [], []
+        valid_losses = [0 for _ in range(len(self.task.dataset('valid').datasets.keys()))] 
+        valid_ntoks = [0 for _ in range(len(self.task.dataset('valid').datasets.keys()))] 
+        train_losses = [0 for _ in range(len(self.task.dataset('train').datasets.keys()))] 
+        train_ntoks = [0 for _ in range(len(self.task.dataset('train').datasets.keys()))] 
         if self.args.exact_update:
             self.optimizer.clone_param()
             for j, train_key in enumerate(self.task.dataset('train').datasets.keys()):
@@ -319,10 +322,10 @@ class Trainer(object):
                 train_sample = self._prepare_sample(train_sample)
                 loss, sample_size, logging_output = self.task.train_step(
                                         train_sample, self.model, self.criterion, self.optimizer)
+                train_losses[j] += loss
+                train_ntoks[j] += list(logging_output.values())[0]['ntokens']
                 if sample_size > 0:
                     loss = loss / sample_size
-                if j == 0:
-                  train_losses.append(loss)
                 self.optimizer.save_train_grad_t0()
                 self.zero_grad()
                 if self.cuda:
@@ -335,17 +338,22 @@ class Trainer(object):
                     # calculate sim
                     loss, sample_size, logging_output = self.task.train_step(
                                             sample, self.model, self.criterion, self.optimizer)
+                    valid_losses[i] += loss
+                    valid_ntoks[i] += list(logging_output.values())[0]['ntokens']
                     if sample_size > 0:
                         loss = loss / sample_size
                     sim, cur_grad_sim, prev_grad_sim = self.optimizer.get_grad_sim()
-                    if j==0:
-                        valid_losses.append(loss)
                     sim_list.append(sim)
                     self.zero_grad()
                     if self.cuda:
                         torch.cuda.empty_cache()
                 self.optimizer.switch_param()
                 all_sim_list.append(sim_list)
+            for i in range(len(valid_losses)):
+                valid_losses[i] = np.exp(valid_losses[i]/valid_ntoks[i])
+            for i in range(len(train_losses)):
+                train_losses[i] = np.exp(train_losses[i]/train_ntoks[i])
+
             all_sim_list = np.transpose(np.array(all_sim_list))
             self.optimizer.switch_param(clear_cache=True)
         elif self.args.discount_grad:
@@ -476,10 +484,12 @@ class Trainer(object):
                     sim_list = np.mean(np.array(selected_sim_list), axis=0).tolist()
                 else:
                     sim_list = np.mean(np.array(all_sim_list), axis=0).tolist()
-            else:
+            elif epoch >= args.switch_obj_epoch:
                 sorted_indices = np.argsort(valid_losses)
                 selected_indices = sorted_indices[len(valid_losses)//2:]
                 val_keys = list(self.task.dataset('valid').datasets.keys())
+                for i, val_key in enumerate(val_keys):
+                    print(val_key, valid_losses[i])
                 print('selected keys:')
                 for k in selected_indices:
                     print(val_keys[k], valid_losses[k])
@@ -488,6 +498,8 @@ class Trainer(object):
                     if k in selected_indices:
                         selected_sim_list.append(sim)
                 sim_list = np.mean(np.array(selected_sim_list), axis=0).tolist()
+            else:
+                sim_list = np.mean(np.array(all_sim_list), axis=0).tolist()
             print(sim_list)
         elif self.args.utility_type == 'max-half':
             # find the valid languages with max losses
@@ -513,10 +525,12 @@ class Trainer(object):
                     sim_list = np.mean(np.array(selected_sim_list), axis=0).tolist()
                 else:
                     sim_list = np.mean(np.array(all_sim_list), axis=0).tolist()
-            else:
+            elif epoch >= args.switch_obj_epoch:
                 sorted_indices = np.argsort(valid_losses)
                 selected_indices = sorted_indices[len(valid_losses)//2:]
                 val_keys = list(self.task.dataset('valid').datasets.keys())
+                for i, val_key in enumerate(val_keys):
+                    print(val_keys[k], valid_losses[k])
                 print('selected keys:')
                 for k in selected_indices:
                     print(val_keys[k], valid_losses[k])
@@ -525,6 +539,8 @@ class Trainer(object):
                     if k in selected_indices:
                         selected_sim_list.append(sim)
                 sim_list = np.mean(np.array(selected_sim_list), axis=0).tolist()
+            else:
+                sim_list = np.mean(np.array(all_sim_list), axis=0).tolist()
             print(sim_list)
 
         elif self.args.utility_type == 'median':
