@@ -52,6 +52,7 @@ class SequenceScorer(object):
         for model in models:
             model.eval()
             decoder_out = model.forward(**net_input)
+            decoder_out = list(decoder_out.values())[0]
             attn = decoder_out[1]
 
             batched = batch_for_softmax(decoder_out, orig_target)

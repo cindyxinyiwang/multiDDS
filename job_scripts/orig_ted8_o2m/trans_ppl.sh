@@ -25,7 +25,7 @@ python generate.py data-bin/ted_8_sepv/ \
 	  --encoder-langtok "tgt" \
           --lang-pairs "eng-aze,eng-tur,eng-bel,eng-rus,eng-glg,eng-por,eng-slk,eng-ces" \
           --source-lang eng --target-lang aze \
-          --beam 5   > "$OUTDIR"/test_engaze.log
+          --beam 5   > "$OUTDIR"/test_engaze_score.log
 
 python generate.py data-bin/ted_8_sepv/ \
           --task multilingual_translation \
@@ -38,7 +38,7 @@ python generate.py data-bin/ted_8_sepv/ \
 	  --encoder-langtok "tgt" \
           --lang-pairs "eng-aze,eng-tur,eng-bel,eng-rus,eng-glg,eng-por,eng-slk,eng-ces" \
           --source-lang eng --target-lang tur \
-          --beam 5   > "$OUTDIR"/test_engtur.log
+          --beam 5   > "$OUTDIR"/test_engtur_score.log
 
 python generate.py data-bin/ted_8_sepv/ \
           --task multilingual_translation \
@@ -51,7 +51,7 @@ python generate.py data-bin/ted_8_sepv/ \
 	  --encoder-langtok "tgt" \
           --lang-pairs "eng-aze,eng-tur,eng-bel,eng-rus,eng-glg,eng-por,eng-slk,eng-ces" \
           --source-lang eng --target-lang bel \
-          --beam 5   > "$OUTDIR"/test_engbel.log
+          --beam 5   > "$OUTDIR"/test_engbel_score.log
 
 python generate.py data-bin/ted_8_sepv/ \
           --task multilingual_translation \
@@ -64,7 +64,7 @@ python generate.py data-bin/ted_8_sepv/ \
 	  --encoder-langtok "tgt" \
           --lang-pairs "eng-aze,eng-tur,eng-bel,eng-rus,eng-glg,eng-por,eng-slk,eng-ces" \
           --source-lang eng --target-lang rus \
-          --beam 5   > "$OUTDIR"/test_engrus.log
+          --beam 5   > "$OUTDIR"/test_engrus_score.log
 
 python generate.py data-bin/ted_8_sepv/ \
           --task multilingual_translation \
@@ -77,7 +77,7 @@ python generate.py data-bin/ted_8_sepv/ \
 	  --encoder-langtok "tgt" \
           --lang-pairs "eng-aze,eng-tur,eng-bel,eng-rus,eng-glg,eng-por,eng-slk,eng-ces" \
           --source-lang eng --target-lang glg \
-          --beam 5   > "$OUTDIR"/test_engglg.log
+          --beam 5   > "$OUTDIR"/test_engglg_score.log
 
 python generate.py data-bin/ted_8_sepv/ \
           --task multilingual_translation \
@@ -90,7 +90,7 @@ python generate.py data-bin/ted_8_sepv/ \
 	  --encoder-langtok "tgt" \
           --lang-pairs "eng-aze,eng-tur,eng-bel,eng-rus,eng-glg,eng-por,eng-slk,eng-ces" \
           --source-lang eng --target-lang por \
-          --beam 5   > "$OUTDIR"/test_engpor.log
+          --beam 5   > "$OUTDIR"/test_engpor_score.log
 
 python generate.py data-bin/ted_8_sepv/ \
           --task multilingual_translation \
@@ -103,7 +103,7 @@ python generate.py data-bin/ted_8_sepv/ \
 	  --encoder-langtok "tgt" \
           --lang-pairs "eng-aze,eng-tur,eng-bel,eng-rus,eng-glg,eng-por,eng-slk,eng-ces" \
           --source-lang eng --target-lang slk \
-          --beam 5   > "$OUTDIR"/test_engslk.log
+          --beam 5   > "$OUTDIR"/test_engslk_score.log
 
 python generate.py data-bin/ted_8_sepv/ \
           --task multilingual_translation \
@@ -116,6 +116,6 @@ python generate.py data-bin/ted_8_sepv/ \
 	  --encoder-langtok "tgt" \
           --lang-pairs "eng-aze,eng-tur,eng-bel,eng-rus,eng-glg,eng-por,eng-slk,eng-ces" \
           --source-lang eng --target-lang ces \
-          --beam 5   > "$OUTDIR"/test_engces.log
+          --beam 5   > "$OUTDIR"/test_engces_score.log
 
 #grep ^H checkpoints/tag_fw_slk-eng/fwtrans_test.log | cut -f3 > checkpoints/tag_fw_slk-eng/fwtrans_test.decode
