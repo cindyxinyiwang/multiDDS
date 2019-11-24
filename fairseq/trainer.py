@@ -530,7 +530,7 @@ class Trainer(object):
                 selected_indices = sorted_indices[len(valid_losses)//2:]
                 val_keys = list(self.task.dataset('valid').datasets.keys())
                 for i, val_key in enumerate(val_keys):
-                    print(val_keys[k], valid_losses[k])
+                    print(val_keys[i], valid_losses[i])
                 print('selected keys:')
                 for k in selected_indices:
                     print(val_keys[k], valid_losses[k])
