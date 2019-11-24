@@ -527,7 +527,7 @@ class Trainer(object):
                     sim_list = np.mean(np.array(all_sim_list), axis=0).tolist()
             elif epoch >= args.switch_obj_epoch:
                 sorted_indices = np.argsort(valid_losses)
-                selected_indices = sorted_indices[len(valid_losses)//2:]
+                selected_indices = sorted_indices[:len(valid_losses)//2]
                 val_keys = list(self.task.dataset('valid').datasets.keys())
                 for i, val_key in enumerate(val_keys):
                     print(val_keys[i], valid_losses[i])
