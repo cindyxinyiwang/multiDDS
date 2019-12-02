@@ -78,7 +78,7 @@ class Trainer(object):
             else:
                 self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
         elif self.args.data_actor == 'lan':
-            self.data_actor = LanguageActor(args, len(self.args.lang_pairs))
+            self.data_actor = LanguageActor(args, len(self.args.lang_pairs), optimize_emb=args.data_actor_embed_grad)
             if self.cuda:
                 self.data_actor = self.data_actor.cuda()
             self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
@@ -881,21 +881,26 @@ class Trainer(object):
             self.pretrain_data_actor(feature)
         if self.args.data_actor == 'base':
             feature = torch.ones(1, len(self.task.dataset('train').datasets.keys()))
-            grad_scale = torch.FloatTensor(sim_list).view(1, -1)
-            if self.cuda:
-                feature = feature.cuda()
-                grad_scale = grad_scale.cuda()
-            for _ in range(self.args.data_actor_optim_step):
-                a_logits = self.data_actor.forward(feature)
-                loss = -torch.nn.functional.log_softmax(a_logits, dim=-1)
-                loss = (loss * grad_scale).sum()
-                loss.backward()
-                self.data_optimizer.step()
-                self.data_optimizer.zero_grad()
-            with torch.no_grad():
-                a_logits = self.data_actor.forward(feature)
-                prob = torch.nn.functional.softmax(a_logits, dim=-1)
-                sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
+        elif self.args.data_actor == 'lan':
+            feature = torch.LongTensor([i for i in range(len(self.task.dataset('train').datasets.keys()))]).view(1, -1)
+            print('feature')
+            print(feature)
+        grad_scale = torch.FloatTensor(sim_list).view(1, -1)
+
+        if self.cuda:
+            feature = feature.cuda()
+            grad_scale = grad_scale.cuda()
+        for _ in range(self.args.data_actor_optim_step):
+            a_logits = self.data_actor.forward(feature)
+            loss = -torch.nn.functional.log_softmax(a_logits, dim=-1)
+            loss = (loss * grad_scale).sum()
+            loss.backward()
+            self.data_optimizer.step()
+            self.data_optimizer.zero_grad()
+        with torch.no_grad():
+            a_logits = self.data_actor.forward(feature)
+            prob = torch.nn.functional.softmax(a_logits, dim=-1)
+            sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
         # set sampling distribution
         self.task.dataset('train').update_sampling_distribution(sim_list)
     
@@ -945,7 +950,8 @@ class Trainer(object):
                 feature = feature.cuda()
                 target = target.cuda()
             l = 100
-            while l > 0.000001:
+            step = 0
+            while l > 0.000001 and step < 100000:
                 a_logits = self.data_actor.forward(feature)
                 prob = torch.nn.functional.softmax(a_logits, dim=0)
                 loss = torch.nn.functional.mse_loss(prob, target)
@@ -953,6 +959,7 @@ class Trainer(object):
                 loss.backward()
                 self.data_optimizer.step()
                 self.data_optimizer.zero_grad()
+                step += 1
             with torch.no_grad():
                 a_logits = self.data_actor.forward(feature)
                 prob = torch.nn.functional.softmax(a_logits, dim=0)
