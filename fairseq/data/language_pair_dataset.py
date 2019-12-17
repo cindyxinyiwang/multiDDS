@@ -13,6 +13,7 @@ from . import data_utils, FairseqDataset
 def collate(
     samples, pad_idx, eos_idx, left_pad_source=True, left_pad_target=False,
     input_feeding=True, char_dim=None, reverse=False, src_tag_idx=-1, tgt_tag_idx=-1,
+    src_tau=-1, tgt_tau=-1, src_dict=None, tgt_dict=None, 
 ):
     if len(samples) == 0:
         return {}
@@ -78,6 +79,7 @@ def collate(
         target = merge(t_key, left_pad=left_pad_target)
         target = target.index_select(0, sort_order)
         ntokens = sum(len(s[t_key]) for s in samples)
+        target_lengths = torch.LongTensor([s[t_key].numel() for s in samples])
 
         if input_feeding:
             # we create a shifted version of targets for feeding the
@@ -90,6 +92,12 @@ def collate(
             prev_output_tokens = prev_output_tokens.index_select(0, sort_order)
     else:
         ntokens = sum(len(s[s_key]) for s in samples)
+    
+    # sample augmented data based on switchout
+    if src_tau >= 0:
+        src_tokens = data_utils.switchout(src_tokens, src_lengths, src_tau, src_dict)
+    if tgt_tau >= 0:
+        target = data_utils.switchout(target, target_lengths, tgt_tau, tgt_dict)
 
     batch = {
         'id': id,
@@ -141,7 +149,7 @@ class LanguagePairDataset(FairseqDataset):
         left_pad_source=True, left_pad_target=False,
         max_source_positions=1024, max_target_positions=1024,
         shuffle=True, input_feeding=True, remove_eos_from_source=False, append_eos_to_target=False,
-        src_tag=None, tgt_tag=None,
+        src_tag=None, tgt_tag=None, src_tau=-1, tgt_tau=-1,
     ):
         if tgt_dict is not None:
             assert src_dict.pad() == tgt_dict.pad()
@@ -149,6 +157,8 @@ class LanguagePairDataset(FairseqDataset):
             assert src_dict.unk() == tgt_dict.unk()
         self.src = src
         self.tgt = tgt
+        self.src_tau = src_tau
+        self.tgt_tau = tgt_tau
         self.src_sizes = np.array(src_sizes)
         self.tgt_sizes = np.array(tgt_sizes) if tgt_sizes is not None else None
         self.src_dict = src_dict
@@ -234,6 +244,7 @@ class LanguagePairDataset(FairseqDataset):
             left_pad_source=self.left_pad_source, left_pad_target=self.left_pad_target,
             input_feeding=self.input_feeding, char_dim=len(self.src_dict),
             src_tag_idx=self.src_tag_idx, tgt_tag_idx=self.tgt_tag_idx,
+            src_tau=self.src_tau, tgt_tau=self.tgt_tau, src_dict=self.src_dict, tgt_dict=self.tgt_dict,
         )
 
     def num_tokens(self, index):

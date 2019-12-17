@@ -16,6 +16,37 @@ import types
 import numpy as np
 import torch
 
+def switchout(tokens, lengths, tau, dic):
+    # first sample the number of words to corrupt
+    max_len = tokens.size(1)
+
+    pad_mask = (tokens == dic.pad())
+    eos_mask = (tokens == dic.eos())
+    bos_mask = (tokens == dic.bos())
+    sample_mask = ~((~pad_mask) & (~eos_mask) & (~bos_mask))
+
+    logits = torch.arange(max_len).float()
+    logits = logits.mul_(-1).unsqueeze(0).expand_as(tokens).contiguous().masked_fill_(sample_mask, -float('inf'))
+    probs = torch.softmax(logits.mul_(tau), dim=-1)
+    num_words = torch.distributions.Categorical(probs).sample().float()
+    lengths = lengths.float()
+
+    # sample the indices to corrupt
+    corrupt_pos = num_words.div_(lengths).unsqueeze(1).expand_as(tokens).contiguous().masked_fill_(sample_mask, 0)
+    corrupt_pos = torch.bernoulli(corrupt_pos, out=corrupt_pos).byte()
+    total_words = int(corrupt_pos.sum())
+    if total_words == 0:
+        return tokens
+    # sample the corrupts
+    corrupt_val = torch.LongTensor(total_words)
+    corrupts = torch.zeros_like(tokens).long()
+    corrupts = corrupts.masked_scatter_(corrupt_pos, corrupt_val)
+    sampled_tokens = tokens.add(corrupts).remainder_(len(dic)).masked_fill_(pad_mask, dic.pad())
+
+    print(tokens)
+    print(sampled_tokens)
+    return sampled_tokens
+
 
 def infer_language_pair(path):
     """Infer language pair from filename: <split>.<lang1>-<lang2>.(...).idx"""
