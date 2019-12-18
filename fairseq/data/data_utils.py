@@ -33,7 +33,7 @@ def switchout(tokens, lengths, tau, dic):
 
     # sample the indices to corrupt
     corrupt_pos = num_words.div_(lengths).unsqueeze(1).expand_as(tokens).contiguous().masked_fill_(sample_mask, 0)
-    corrupt_pos = torch.bernoulli(corrupt_pos, out=corrupt_pos).byte()
+    corrupt_pos = torch.bernoulli(corrupt_pos, out=corrupt_pos).byte().bool()
     total_words = int(corrupt_pos.sum())
     if total_words == 0:
         return tokens
@@ -43,8 +43,6 @@ def switchout(tokens, lengths, tau, dic):
     corrupts = corrupts.masked_scatter_(corrupt_pos, corrupt_val)
     sampled_tokens = tokens.add(corrupts).remainder_(len(dic)).masked_fill_(pad_mask, dic.pad())
 
-    print(tokens)
-    print(sampled_tokens)
     return sampled_tokens
 
 
