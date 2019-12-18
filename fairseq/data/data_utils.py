@@ -26,7 +26,11 @@ def switchout(tokens, lengths, tau, dic):
     sample_mask = ~((~pad_mask) & (~eos_mask) & (~bos_mask))
 
     logits = torch.arange(max_len).float()
-    logits = logits.mul_(-1).unsqueeze(0).expand_as(tokens).contiguous().masked_fill_(sample_mask, -float('inf'))
+    mask = []
+    for i in lengths.tolist():
+        mask.append([0 for _ in range(i)] + [1 for _ in range(max_len-i)])
+    mask = torch.LongTensor(mask).bool()
+    logits = logits.mul_(-1).unsqueeze(0).expand_as(tokens).contiguous().masked_fill_(mask, -float('inf'))
     probs = torch.softmax(logits.mul_(tau), dim=-1)
     num_words = torch.distributions.Categorical(probs).sample().float()
     lengths = lengths.float()
