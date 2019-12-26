@@ -166,6 +166,9 @@ def collect_filtered(function, iterable, filtered, noskip=False):
 def _filter_by_size_dynamic(indices, size_fn, max_positions, raise_exception=False, noskip=False):
     def check_size(idx):
         if isinstance(max_positions, float) or isinstance(max_positions, int):
+            s = size_fn(idx)
+            if not (isinstance(s, float) or isinstance(s, int)):
+                return list(s.values())[0] <= max_positions
             return size_fn(idx) <= max_positions
         elif isinstance(max_positions, dict):
             idx_size = size_fn(idx)

@@ -23,7 +23,7 @@ class SentencePredictionCriterion(FairseqCriterion):
                             help='file to save predictions to')
         # fmt: on
 
-    def forward(self, model, sample, reduce=True):
+    def forward(self, model, sample, reduce=True, data_score=None, loss_copy=False):
         """Compute the loss for the given sample.
 
         Returns a tuple with three elements:
@@ -42,7 +42,6 @@ class SentencePredictionCriterion(FairseqCriterion):
         )
         targets = model.get_targets(sample, [logits]).view(-1)
         sample_size = targets.numel()
-
         if not self.args.regression_target:
             loss = F.nll_loss(
                 F.log_softmax(logits, dim=-1, dtype=torch.float32),
@@ -70,7 +69,7 @@ class SentencePredictionCriterion(FairseqCriterion):
             logging_output.update(
                 ncorrect=(preds == targets).sum().item()
             )
-        return loss, sample_size, logging_output
+        return loss, sample_size, logging_output, None
 
     @staticmethod
     def aggregate_logging_outputs(logging_outputs):
@@ -81,7 +80,7 @@ class SentencePredictionCriterion(FairseqCriterion):
         sample_size = sum(log.get('sample_size', 0) for log in logging_outputs)
 
         agg_output = {
-            'loss': loss_sum / sample_size / math.log(2),
+            'loss': loss_sum / sample_size / math.log(2) if sample_size > 0 else 0.,
             'ntokens': ntokens,
             'nsentences': nsentences,
             'sample_size': sample_size,
@@ -92,5 +91,5 @@ class SentencePredictionCriterion(FairseqCriterion):
             agg_output.update(accuracy=ncorrect/nsentences)
 
         if sample_size != ntokens:
-            agg_output['nll_loss'] = loss_sum / ntokens / math.log(2)
+            agg_output['nll_loss'] = loss_sum / ntokens / math.log(2) if ntokens > 0 else 0.
         return agg_output
