@@ -62,7 +62,11 @@ class Trainer(object):
         self.pretrained = False
         if self.args.data_actor == 'base' or self.args.data_actor == 'base_weight':
             # use language level data selector with only bias
-            self.data_actor = BaseActor(args, len(self.args.lang_pairs))
+            if hasattr(self.args, 'lang_pairs'):
+               langs = self.args.lang_pairs
+            else:
+               langs = self.args.langs.split(',')
+            self.data_actor = BaseActor(args, len(langs))
             if self.cuda:
                 self.data_actor = self.data_actor.cuda()
             self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)

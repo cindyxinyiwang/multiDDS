@@ -1,6 +1,6 @@
 # Switchout: an Efficient Data Augmentation Algorithm for Multilingual Neural Machine Translation (Wang et al., 2018)
 
-This page includes usage of the switchout method from the paper [USwitchout: an Efficient Data Augmentation Algorithm for Multilingual Neural Machine Translation(Wang et al., 2018)](https://arxiv.org/abs/1808.07512).
+This page includes usage of the switchout method from the paper [Switchout: an Efficient Data Augmentation Algorithm for Multilingual Neural Machine Translation(Wang et al., 2018)](https://arxiv.org/abs/1808.07512).
 
 
 ## Example usage
