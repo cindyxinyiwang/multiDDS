@@ -102,6 +102,7 @@ class FairseqTask(object):
         self, dataset, max_tokens=None, max_sentences=None, max_positions=None,
         ignore_invalid_inputs=False, required_batch_size_multiple=1,
         seed=1, num_shards=1, shard_id=0, num_workers=0, epoch=0, noskip=False, source_lang=None, target_lang=None,
+        data_actor=None, data_filter_percentage=-1, filtered_maxpos_indices=None,
     ):
         """
         Get an iterator that yields batches of data from the given dataset.
@@ -129,6 +130,7 @@ class FairseqTask(object):
                 (default: 0).
             epoch (int, optional): the epoch to start the iterator from
                 (default: 0).
+            data_actor: if not None, it will be used to filter out data
 
         Returns:
             ~fairseq.iterators.EpochBatchIterator: a batched iterator over the
@@ -142,9 +144,16 @@ class FairseqTask(object):
 
         # filter examples that are too large
         if max_positions is not None:
-            indices = data_utils.filter_by_size(
-                indices, dataset, max_positions, raise_exception=(not ignore_invalid_inputs), noskip=noskip,
-            )
+            if filtered_maxpos_indices is None:
+                indices = data_utils.filter_by_size(
+                    indices, dataset, max_positions, raise_exception=(not ignore_invalid_inputs), noskip=noskip,
+                )
+            else:
+                indices = filtered_maxpos_indices
+
+        # data selection: filter a subset of data
+        if data_actor is not None:
+            indices = data_utils.filter_by_data_actor(indices, dataset, data_actor, data_filter_percentage)
 
         # create mini-batches with given size constraints
         batch_sampler = data_utils.batch_by_size(
@@ -162,7 +171,7 @@ class FairseqTask(object):
             shard_id=shard_id,
             num_workers=num_workers,
             epoch=epoch,
-        )
+        ), indices
 
     def build_model(self, args):
         """

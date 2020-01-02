@@ -994,6 +994,29 @@ class Trainer(object):
             epoch=epoch,
         )
 
+    def get_filtered_train_iterator(self, epoch, combine=True, filtered_maxpos_indices=None):
+        """Return an EpochBatchIterator over the training set for a given epoch. Filter out certain amount of data"""
+        print('| loading train data for epoch {}'.format(epoch))
+        self.task.load_dataset(self.args.train_subset, epoch=epoch, combine=combine)
+        return self.task.get_batch_iterator(
+            dataset=self.task.dataset(self.args.train_subset),
+            max_tokens=self.args.max_tokens,
+            max_sentences=self.args.max_sentences,
+            max_positions=utils.resolve_max_positions(
+                self.task.max_positions(),
+                self.model.max_positions(),
+            ),
+            ignore_invalid_inputs=True,
+            required_batch_size_multiple=self.args.required_batch_size_multiple,
+            seed=self.args.seed,
+            num_shards=self.args.distributed_world_size,
+            shard_id=self.args.distributed_rank,
+            num_workers=self.args.num_workers,
+            epoch=epoch,
+            data_actor=self.data_actor,
+            data_filter_percentage=self.args.data_filter_percentage,
+        )
+
     def train_step(self, samples, dummy_batch=False, raise_oom=False, update_actor=True):
         """Do forward, backward and parameter update."""
         if self._dummy_batch is None:
@@ -1185,7 +1208,7 @@ class Trainer(object):
         self.meters['train_wall'].stop()
 
         if (self.args.data_actor == 'lan') and update_actor:
-            # update data actor
+            # update data actor using the original DDS discount gradient
             # get dev gradient
             train_lan_id = self.task.langpair2id[list(samples[-1].keys())[0]]
             print("train language id")
@@ -1236,10 +1259,60 @@ class Trainer(object):
                 a_logits = self.data_actor.forward(feature)
                 prob = torch.nn.functional.softmax(a_logits, dim=-1)
                 sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
-
             self.task.dataset('train').update_sampling_distribution(sim_list)
-
-
+        if (self.args.data_actor == 'ave_emb' or self.args.extra_data_actor == 'ave_emb') and update_actor:
+            # update data actor
+            # get dev gradient
+            dev_itr = self.task.get_batch_iterator(
+                dataset=self.task.dataset('valid'),
+                max_tokens=self.args.max_tokens_valid,
+                max_sentences=self.args.max_sentences_valid,
+                max_positions=utils.resolve_max_positions(
+                    self.task.max_positions(),
+                    self.get_model().max_positions(),
+                ),
+                ignore_invalid_inputs=self.args.skip_invalid_size_inputs_valid_test,
+                required_batch_size_multiple=self.args.required_batch_size_multiple,
+                seed=self.args.seed,
+                num_shards=self.args.distributed_world_size,
+                shard_id=self.args.distributed_rank,
+                num_workers=self.args.num_workers,
+            )[0].next_epoch_itr(shuffle=True)
+            for valid_sample in dev_itr:
+                valid_sample = self._prepare_sample(valid_sample)
+                _loss, _sample_size, _logging_output = self.task.train_step(
+                                        valid_sample, self.model, self.criterion, self.optimizer)
+                self.optimizer.save_dev_grad()
+                break
+            self.zero_grad()
+            # get per example reward
+            with torch.no_grad():
+                self.optimizer.switch_param()
+                eta = 0.001
+                self.optimizer.add_grad(eta=eta)
+                cur_loss = {}
+                _loss, _sample_size, _logging_output = self.task.train_step(
+                    sample, self.model, self.criterion, self.optimizer,
+                    ignore_grad=True, data_actor=None, loss_copy=cur_loss,
+                )
+                self.optimizer.switch_param(clear_cache=True)
+            # optimize data actor
+            for k in cached_loss.keys():
+                reward = 1./eta * (cur_loss[k] - cached_loss[k])
+                if self.args.out_score_type == 'sigmoid':
+                    #loss = -(torch.log(1e-20 + data_actor_out[k]) * reward.data)
+                    loss = -(data_actor_out[k] * reward.data)
+                elif self.args.out_score_type == 'exp':
+                    loss = -(torch.log(1e-20 + data_actor_out[k]) * reward.data)
+                if cur_loss[k].size(0) > 0:
+                    loss.div_(cur_loss[k].size(0))
+                loss.sum().backward()
+            if self.args.data_actor == 'ave_emb': 
+                self.data_optimizer.step()
+                self.data_optimizer.zero_grad()
+            elif self.args.extra_data_actor == 'ave_emb':
+                self.extra_data_optimizer.step()
+                self.extra_data_optimizer.zero_grad()
         return logging_output
 
 

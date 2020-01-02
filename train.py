@@ -68,7 +68,7 @@ def main(args, init_distributed=False):
 
     # Load the latest checkpoint if one is available and restore the
     # corresponding train iterator
-    extra_state, epoch_itr = checkpoint_utils.load_checkpoint(args, trainer)
+    extra_state, epoch_itr, filtered_maxpos_indices = checkpoint_utils.load_checkpoint(args, trainer)
 
     # pretrain data actor
     if args.pretrain_data_actor and args.data_actor == 'lan' and args.data_actor_step_update:
@@ -88,7 +88,7 @@ def main(args, init_distributed=False):
         generator = None
     while lr > args.min_lr and epoch_itr.epoch < max_epoch and trainer.get_num_updates() < max_update:
         # train for one epoch
-        train(args, trainer, task, epoch_itr, generator)
+        epoch_iter = train(args, trainer, task, epoch_itr, generator, filtered_maxpos_indices)
         #trainer.update_language_sampler(args)
 
         if not args.disable_validation and epoch_itr.epoch % args.validate_interval == 0:
@@ -105,12 +105,12 @@ def main(args, init_distributed=False):
 
         if ':' in getattr(args, 'data', ''):
             # sharded data: get train iterator for next epoch
-            epoch_itr = trainer.get_train_iterator(epoch_itr.epoch)
+            epoch_itr = trainer.get_train_iterator(epoch_itr.epoch)[0]
     train_meter.stop()
     print('| done training in {:.1f} seconds'.format(train_meter.sum))
 
 
-def train(args, trainer, task, epoch_itr, generator=None):
+def train(args, trainer, task, epoch_itr, generator=None, filtered_maxpos_indices=None):
     """Train the model for one epoch."""
     # Update parameters every N batches
     update_freq = args.update_freq[epoch_itr.epoch - 1] \
@@ -118,6 +118,9 @@ def train(args, trainer, task, epoch_itr, generator=None):
     extra_meters = collections.defaultdict(lambda: AverageMeter())
     valid_subsets = args.valid_subset.split(',')
     max_update = args.max_update or math.inf
+    # data selection: reset epoch iter to filter out unselected data
+    if epoch_itr.epoch > args.select_by_dds_epoch:
+        epoch_itr, _ = trainer.get_filtered_train_iterator(epoch_itr.epoch, filtered_maxpos_indices=filtered_maxpos_indices)
 
     if args.update_language_sampling > 0:
         num_reset = len(epoch_itr.frozen_batches) // (args.update_language_sampling*args.update_freq[0]+1)
@@ -142,6 +145,7 @@ def train(args, trainer, task, epoch_itr, generator=None):
         )
 
         for i, samples in enumerate(progress, start=epoch_itr.iterations_in_epoch):
+            #print(samples)
             if args.extra_data_actor == 'ave_emb':
                 update_actor = (i % args.extra_update_language_sampling == 0)
             elif args.data_actor == 'ave_emb':
@@ -202,6 +206,7 @@ def train(args, trainer, task, epoch_itr, generator=None):
         meter = trainer.get_meter(k)
         if meter is not None:
             meter.reset()
+    return epoch_itr
 
 
 def get_training_stats(trainer):
@@ -251,7 +256,7 @@ def validate(args, trainer, task, epoch_itr, subsets, generator=None):
             shard_id=args.distributed_rank,
             num_workers=args.num_workers,
             noskip=True,
-        ).next_epoch_itr(shuffle=False)
+        )[0].next_epoch_itr(shuffle=False)
         progress = progress_bar.build_progress_bar(
             args, itr, epoch_itr.epoch,
             prefix='valid on \'{}\' subset'.format(subset),

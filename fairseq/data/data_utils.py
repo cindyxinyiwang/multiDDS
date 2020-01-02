@@ -16,6 +16,8 @@ import types
 import numpy as np
 import torch
 
+from fairseq.data import iterators
+
 def switchout(tokens, lengths, tau, dic):
     # first sample the number of words to corrupt
     max_len = tokens.size(1)
@@ -235,6 +237,50 @@ def filter_by_size(indices, dataset, max_positions, raise_exception=False, noski
             '| WARNING: {} samples have invalid sizes and will be skipped, '
             'max_positions={}, first few sample ids={}'
         ).format(len(ignored), max_positions, ignored[:10]))
+    return indices
+
+def filter_by_data_actor(indices, dataset, data_actor, data_filter_percentage=-1):
+    """
+    Filter indices based on their size.
+
+    Args:
+        indices (List[int]): ordered list of dataset indices
+        dataset (FairseqDataset): fairseq dataset instance
+        max_positions (tuple): filter elements larger than this size.
+            Comparisons are done component-wise.
+        raise_exception (bool, optional): if ``True``, raise an exception if
+            any elements are filtered (default: False).
+    """
+    # calculate data actor score
+    # create mini-batches with given size constraints
+    max_tokens = 4800
+    max_sentences = 100
+    batch_sampler = batch_by_size(
+        indices, dataset.num_tokens, max_tokens=max_tokens, max_sentences=max_sentences,
+    )
+    # return a reusable, sharded iterator
+    itr = iterators.EpochBatchIterator(
+        dataset=dataset,
+        collate_fn=dataset.collater,
+        batch_sampler=batch_sampler
+    ).next_epoch_itr(shuffle=False)
+    idx_start, idx_end = 0, 0
+    scores = np.zeros(len(indices))
+    ids = np.zeros(len(indices), dtype=np.int64)
+    for i, sample in enumerate(itr):
+        sample = list(sample.values())[0]
+        #print(sample)
+        score = data_actor(sample['net_input']['src_tokens'], sample['target']).data.cpu().numpy()
+        idx_start = idx_end
+        idx_end = idx_start + score.shape[0]
+        scores[idx_start:idx_end] = score.ravel()
+        ids[idx_start:idx_end] = sample['id'].data.cpu().numpy().ravel()
+    # argsort is ascending order
+    preserved_indices = np.argsort(scores)[int(len(indices)*data_filter_percentage):]
+    #print(scores)
+    #print(preserved_indices)
+    indices = np.array(ids)[preserved_indices]
+    #print(indices)
     return indices
 
 

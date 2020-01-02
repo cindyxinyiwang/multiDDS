@@ -27,6 +27,7 @@ def get_training_parser(default_task='translation'):
     add_checkpoint_args(parser)
     add_generation_args(parser)
     add_switchout_args(parser)
+    add_data_filter_args(parser)
     return parser
 
 
@@ -314,6 +315,13 @@ def add_switchout_args(parser):
     group.add_argument("--target-tau", default=-1, type=float, metavar="SRCTAU",
                        help="temperature for target language")
 
+def add_data_filter_args(parser):
+    group = parser.add_argument_group('Datafilter')
+    # fmt: off
+    group.add_argument("--data-filter-percentage", default=-1, type=float, metavar="SRCTAU",
+                       help="percentage of data to filter out")
+    group.add_argument("--select-by-dds-epoch", default=-1, type=int, metavar="SRCTAU",
+                       help="the epoch to start filter data")
 
 def add_preprocess_args(parser):
     group = parser.add_argument_group('Preprocessing')
