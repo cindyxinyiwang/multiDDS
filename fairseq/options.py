@@ -322,6 +322,9 @@ def add_data_filter_args(parser):
                        help="percentage of data to filter out")
     group.add_argument("--select-by-dds-epoch", default=-1, type=int, metavar="SRCTAU",
                        help="the epoch to start filter data")
+    group.add_argument("--random-data-filter", action="store_true",
+                       help="the epoch to start filter data")
+
 
 def add_preprocess_args(parser):
     group = parser.add_argument_group('Preprocessing')

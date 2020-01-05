@@ -367,7 +367,7 @@ class MultilingualTranslationTask(FairseqTask):
             if lang_pair not in sample or sample[lang_pair] is None or len(sample[lang_pair]) == 0:
                 continue
             # If we filer data, do not scale by score
-            if data_score is not None or self.args.select_by_dds_epoch < 0:
+            if data_score is not None and  self.args.select_by_dds_epoch < 0:
                 score = data_score[lang_pair]
             else:
                 score = None

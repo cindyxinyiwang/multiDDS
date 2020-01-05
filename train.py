@@ -88,7 +88,7 @@ def main(args, init_distributed=False):
         generator = None
     while lr > args.min_lr and epoch_itr.epoch < max_epoch and trainer.get_num_updates() < max_update:
         # train for one epoch
-        epoch_iter = train(args, trainer, task, epoch_itr, generator, filtered_maxpos_indices)
+        epoch_itr = train(args, trainer, task, epoch_itr, generator, filtered_maxpos_indices)
         #trainer.update_language_sampler(args)
 
         if not args.disable_validation and epoch_itr.epoch % args.validate_interval == 0:
@@ -119,10 +119,10 @@ def train(args, trainer, task, epoch_itr, generator=None, filtered_maxpos_indice
     valid_subsets = args.valid_subset.split(',')
     max_update = args.max_update or math.inf
     # data selection: reset epoch iter to filter out unselected data
-    if epoch_itr.epoch > args.select_by_dds_epoch:
+    if epoch_itr.epoch > args.select_by_dds_epoch and args.select_by_dds_epoch > 0:
         epoch_itr, _ = trainer.get_filtered_train_iterator(epoch_itr.epoch, filtered_maxpos_indices=filtered_maxpos_indices)
 
-    if args.update_language_sampling > 0:
+    if args.update_language_sampling > 0 and args.select_by_dds_epoch < 0:
         num_reset = len(epoch_itr.frozen_batches) // (args.update_language_sampling*args.update_freq[0]+1)
         datasize = args.update_language_sampling*args.update_freq[0]+1
         if num_reset * datasize < len(epoch_itr.frozen_batches):

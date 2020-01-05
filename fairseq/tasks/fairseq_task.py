@@ -102,7 +102,7 @@ class FairseqTask(object):
         self, dataset, max_tokens=None, max_sentences=None, max_positions=None,
         ignore_invalid_inputs=False, required_batch_size_multiple=1,
         seed=1, num_shards=1, shard_id=0, num_workers=0, epoch=0, noskip=False, source_lang=None, target_lang=None,
-        data_actor=None, data_filter_percentage=-1, filtered_maxpos_indices=None,
+        data_actor=None, trainer=None, data_filter_percentage=-1, filtered_maxpos_indices=None,
     ):
         """
         Get an iterator that yields batches of data from the given dataset.
@@ -153,7 +153,7 @@ class FairseqTask(object):
 
         # data selection: filter a subset of data
         if data_actor is not None:
-            indices = data_utils.filter_by_data_actor(indices, dataset, data_actor, data_filter_percentage)
+            indices = data_utils.filter_by_data_actor(indices, dataset, data_actor, data_filter_percentage, trainer=trainer)
 
         # create mini-batches with given size constraints
         batch_sampler = data_utils.batch_by_size(

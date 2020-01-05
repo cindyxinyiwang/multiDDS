@@ -239,7 +239,7 @@ def filter_by_size(indices, dataset, max_positions, raise_exception=False, noski
         ).format(len(ignored), max_positions, ignored[:10]))
     return indices
 
-def filter_by_data_actor(indices, dataset, data_actor, data_filter_percentage=-1):
+def filter_by_data_actor(indices, dataset, data_actor, data_filter_percentage=-1, trainer=None):
     """
     Filter indices based on their size.
 
@@ -251,6 +251,12 @@ def filter_by_data_actor(indices, dataset, data_actor, data_filter_percentage=-1
         raise_exception (bool, optional): if ``True``, raise an exception if
             any elements are filtered (default: False).
     """
+    if trainer.args.random_data_filter:
+        indices = np.array(indices)
+        np.random.shuffle(indices)
+        indices = indices[int(len(indices)*data_filter_percentage):]
+        indices.sort()
+        return indices
     # calculate data actor score
     # create mini-batches with given size constraints
     max_tokens = 4800
@@ -268,6 +274,7 @@ def filter_by_data_actor(indices, dataset, data_actor, data_filter_percentage=-1
     scores = np.zeros(len(indices))
     ids = np.zeros(len(indices), dtype=np.int64)
     for i, sample in enumerate(itr):
+        sample = trainer._prepare_sample(sample)
         sample = list(sample.values())[0]
         #print(sample)
         score = data_actor(sample['net_input']['src_tokens'], sample['target']).data.cpu().numpy()
@@ -280,6 +287,8 @@ def filter_by_data_actor(indices, dataset, data_actor, data_filter_percentage=-1
     #print(scores)
     #print(preserved_indices)
     indices = np.array(ids)[preserved_indices]
+    indices.sort()
+    print("Orignial data size={}; filtered data size={}".format(len(ids), len(indices)))
     #print(indices)
     return indices
 

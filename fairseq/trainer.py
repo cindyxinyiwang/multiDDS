@@ -1014,6 +1014,7 @@ class Trainer(object):
             num_workers=self.args.num_workers,
             epoch=epoch,
             data_actor=self.data_actor,
+            trainer=self,
             data_filter_percentage=self.args.data_filter_percentage,
         )
 
@@ -1277,6 +1278,7 @@ class Trainer(object):
                 num_shards=self.args.distributed_world_size,
                 shard_id=self.args.distributed_rank,
                 num_workers=self.args.num_workers,
+                noskip=True,
             )[0].next_epoch_itr(shuffle=True)
             for valid_sample in dev_itr:
                 valid_sample = self._prepare_sample(valid_sample)
