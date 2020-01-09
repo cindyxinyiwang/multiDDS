@@ -1,5 +1,6 @@
 import torch
-from fairseq.models import lstm
+import copy
+import fairseq.models 
 
 class BaseActor(torch.nn.Module):
   def __init__(self, args, lan_size):
@@ -86,7 +87,8 @@ class AveEmbActor(torch.nn.Module):
         self.project_out = torch.nn.Linear(2*embed_dim, 1)
         self.out_score_type = args.out_score_type
         
-    def forward(self, src_tokens, trg_tokens):
+    def forward(self, sample):
+        src_tokens, trg_tokens = sample['net_input']['src_tokens'], sample['target']
         bsz, seqlen = src_tokens.size()
 
         src_word_count = (~src_tokens.eq(self.padding_idx)).long().sum(dim=-1, keepdim=True)
@@ -138,35 +140,67 @@ class LSTMActor(torch.nn.Module):
     def __init__(self, args, task):
         super(LSTMActor, self).__init__()
         args = lstm_wiseman_iwslt_de_en(args)
-        self.model = lstm.LSTMModel.build_model(args, task)
+        self.model = LSTMModel.build_model(args, task)
         
         self.project_out = torch.nn.Linear(2*embed_dim, 1)
         self.out_score_type = args.out_score_type
         
     def forward(self, src_tokens, trg_tokens):
-        bsz, seqlen = src_tokens.size()
-
-        src_word_count = (~src_tokens.eq(self.padding_idx)).long().sum(dim=-1, keepdim=True)
-        # embed tokens
-        x = self.src_embed_tokens(src_tokens)
-        
-        # B x T x C -> B x C
-        x = x.sum(dim=1) / src_word_count.float()
-
-        trg_word_count = (~trg_tokens.eq(self.padding_idx)).long().sum(dim=-1, keepdim=True)
-        # embed tokens
-        y = self.trg_embed_tokens(trg_tokens)
-        
-        # B x T x C -> B x C
-        y = y.sum(dim=1) / trg_word_count.float()
-
-        inp = torch.cat([x, y], dim=-1)
-        #inp = y
+        net_output = self.model.encoder(**sample['net_input'])
         # B x 1
         if self.out_score_type == 'sigmoid':
             score = torch.sigmoid(self.project_out(inp))
         elif self.out_score_type == 'exp':
             score = torch.exp(self.project_out(inp))
         return score 
+
+class TransformerActor(torch.nn.Module):
+    """Transformer based actor"""
+    def __init__(self, args, task):
+        super(TransformerActor, self).__init__()
+        args = copy.deepcopy(args)
+        args.arch = 'transformer'
+        args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 128)
+        args.encoder_ffn_embed_dim = getattr(args, 'encoder_ffn_embed_dim', 512)
+        args.encoder_layers = getattr(args, 'encoder_layers', 4)
+        args.encoder_attention_heads = getattr(args, 'encoder_attention_heads', 3)
+        args.encoder_normalize_before = getattr(args, 'encoder_normalize_before', True)
+        args.encoder_learned_pos = getattr(args, 'encoder_learned_pos', False)
+        args.decoder_embed_path = getattr(args, 'decoder_embed_path', None)
+        args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', args.encoder_embed_dim)
+        args.decoder_ffn_embed_dim = getattr(args, 'decoder_ffn_embed_dim', args.encoder_ffn_embed_dim)
+        args.decoder_layers = getattr(args, 'decoder_layers', 4)
+        args.decoder_attention_heads = getattr(args, 'decoder_attention_heads', 3)
+        args.decoder_normalize_before = getattr(args, 'decoder_normalize_before', True)
+        args.decoder_learned_pos = getattr(args, 'decoder_learned_pos', False)
+        args.attention_dropout = getattr(args, 'attention_dropout', 0.)
+        args.activation_dropout = getattr(args, 'activation_dropout', 0.)
+        args.activation_fn = getattr(args, 'activation_fn', 'relu')
+        args.dropout = getattr(args, 'dropout', 0.1)
+        args.adaptive_softmax_cutoff = getattr(args, 'adaptive_softmax_cutoff', None)
+        args.adaptive_softmax_dropout = getattr(args, 'adaptive_softmax_dropout', 0)
+        args.share_decoder_input_output_embed = getattr(args, 'share_decoder_input_output_embed', False)
+        args.share_all_embeddings = getattr(args, 'share_all_embeddings', False)
+        args.no_token_positional_embeddings = getattr(args, 'no_token_positional_embeddings', False)
+        args.adaptive_input = getattr(args, 'adaptive_input', False)
+        args.decoder_output_dim = getattr(args, 'decoder_output_dim', args.decoder_embed_dim)
+        args.decoder_input_dim = getattr(args, 'decoder_input_dim', args.decoder_embed_dim)
+
+        self.model = fairseq.models.build_model(args, task)
+        
+        self.project_out = torch.nn.Linear(args.decoder_output_dim, 1)
+        self.out_score_type = args.out_score_type
+        
+    def forward(self, src_tokens, trg_tokens):
+        # B X L X dim
+        net_output = self.model.extract_features(**sample['net_input'])
+        inp = net_input[:,-1,:]
+        # B x 1
+        if self.out_score_type == 'sigmoid':
+            score = torch.sigmoid(self.project_out(inp))
+        elif self.out_score_type == 'exp':
+            score = torch.exp(self.project_out(inp))
+        return score 
+
 
 
