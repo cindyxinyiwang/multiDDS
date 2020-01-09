@@ -908,7 +908,7 @@ class Trainer(object):
         """pretrain the distribution to sample languages """
         if self.args.data_actor == 'base' or self.args.data_actor == 'base_weight':
             if self.args.pretrain_type == "lan_dist":
-                target = torch.FloatTensor(args.lan_dists).view(1, -1)
+                target = torch.FloatTensor(self.args.lan_dists).view(1, -1)
             elif self.args.pretrain_type == "datasize":
                 datasize_p = self.task.dataset('train').p
                 target = torch.FloatTensor(datasize_p).view(1, -1)
