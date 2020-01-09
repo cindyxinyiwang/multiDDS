@@ -26,6 +26,8 @@ def get_training_parser(default_task='translation'):
     add_optimization_args(parser)
     add_checkpoint_args(parser)
     add_generation_args(parser)
+    add_switchout_args(parser)
+    add_data_filter_args(parser)
     return parser
 
 
@@ -255,6 +257,39 @@ def get_parser(desc, default_task='translation'):
     parser.add_argument('--embedding-file', type=str, default=None,
                         help='the file path to init data actor embedding')
 
+
+    # TCS options
+    parser.add_argument('--lan-dists', default=None, type=str,
+                        help='comman separated numbers that indicate language distance')
+    parser.add_argument('--data-condition', default="target", type=str,
+                        help='[source|target] whether to condition on source or target')
+
+    parser.add_argument('--sample-instance', action='store_true',
+                        help='whether to sample for each instance in a batch for mulitlingual_data')
+    parser.add_argument('--sample-tag-prob', default=-1, type=float,
+                        help='probability of using tags other than the language')
+
+    parser.add_argument('--data-actor-multilin', action='store_true',
+                        help='whether to multiling version of the actor')
+    parser.add_argument('--utility-type', type=str, default='ave',
+                        help='type of utility function [ave|min-half|median]')
+    parser.add_argument('--eval-lang-pairs', type=str, default=None,
+                        help='dev data keys for multilin actor')
+
+    parser.add_argument('--no-dev', action='store_true',
+                        help='not use dev set gradient')
+    parser.add_argument('--pretrain-data-actor', action='store_true',
+                        help='pretrain the data actor')
+    parser.add_argument('--pretrain-type', type=str, default='lan_dist',
+                        help='[lan_dist|datasize]')
+    parser.add_argument('--feature-type', type=str, default='ones',
+                        help='[ones|valid_loss|train_loss]')
+
+    parser.add_argument('--datasize-t', type=int, default=None,
+                        help='temperature for controlling datasize sampling')
+    parser.add_argument('--alpha-p', type=float, default=0,
+                            help='[0-1] amount of interpolation for p')
+
     from fairseq.registry import REGISTRIES
     for registry_name, REGISTRY in REGISTRIES.items():
         parser.add_argument(
@@ -270,6 +305,27 @@ def get_parser(desc, default_task='translation'):
                         help='task')
     # fmt: on
     return parser
+
+
+def add_switchout_args(parser):
+    group = parser.add_argument_group('Switchout')
+    # fmt: off
+    group.add_argument("--source-tau", default=-1, type=float, metavar="SRCTAU",
+                       help="temperature for source language")
+    group.add_argument("--target-tau", default=-1, type=float, metavar="SRCTAU",
+                       help="temperature for target language")
+
+def add_data_filter_args(parser):
+    group = parser.add_argument_group('Datafilter')
+    # fmt: off
+    group.add_argument("--data-filter-percentage", default=-1, type=float, metavar="SRCTAU",
+                       help="percentage of data to filter out")
+    group.add_argument("--select-by-dds-epoch", default=-1, type=int, metavar="SRCTAU",
+                       help="the epoch to start filter data")
+    group.add_argument("--random-data-filter", action="store_true",
+                       help="the epoch to start filter data")
+    group.add_argument("--random-data-filter-by-len", action="store_true",
+                       help="the epoch to start filter data")
 
 
 def add_preprocess_args(parser):

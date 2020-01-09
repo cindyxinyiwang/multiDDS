@@ -77,7 +77,7 @@ def main(args):
         shard_id=args.shard_id,
         num_workers=args.num_workers,
         noskip=True,
-    ).next_epoch_itr(shuffle=False)
+    )[0].next_epoch_itr(shuffle=False)
 
     # Initialize generator
     gen_timer = StopwatchMeter()

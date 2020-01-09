@@ -96,37 +96,7 @@ class MultilingualTranslationTask(FairseqTask):
                             help='replace beginning-of-sentence in target sentence with target language token')
         parser.add_argument('--dataset-type', default="round_robin", type=str,
                             help='[round_robin|multi|tcs]')
-        # TCS options
-        parser.add_argument('--lan-dists', default=None, type=str,
-                            help='comman separated numbers that indicate language distance')
-        parser.add_argument('--data-condition', default="target", type=str,
-                            help='[source|target] whether to condition on source or target')
 
-        parser.add_argument('--sample-instance', action='store_true',
-                            help='whether to sample for each instance in a batch for mulitlingual_data')
-        parser.add_argument('--sample-tag-prob', default=-1, type=float,
-                            help='probability of using tags other than the language')
-
-        parser.add_argument('--data-actor-multilin', action='store_true',
-                            help='whether to multiling version of the actor')
-        parser.add_argument('--utility-type', type=str, default='ave',
-                            help='type of utility function [ave|min-half|median]')
-        parser.add_argument('--eval-lang-pairs', type=str, default=None,
-                            help='dev data keys for multilin actor')
-
-        parser.add_argument('--no-dev', action='store_true',
-                            help='not use dev set gradient')
-        parser.add_argument('--pretrain-data-actor', action='store_true',
-                            help='pretrain the data actor')
-        parser.add_argument('--pretrain-type', type=str, default='lan_dist',
-                            help='[lan_dist|datasize]')
-        parser.add_argument('--feature-type', type=str, default='ones',
-                            help='[ones|valid_loss|train_loss]')
-
-        parser.add_argument('--datasize-t', type=int, default=None,
-                            help='temperature for controlling datasize sampling')
-        parser.add_argument('--alpha-p', type=float, default=0,
-                            help='[0-1] amount of interpolation for p')
         # fmt: on
 
     def __init__(self, args, dicts, training):
@@ -396,7 +366,8 @@ class MultilingualTranslationTask(FairseqTask):
         for lang_pair in self.model_lang_pairs:
             if lang_pair not in sample or sample[lang_pair] is None or len(sample[lang_pair]) == 0:
                 continue
-            if data_score is not None:
+            # If we filer data, do not scale by score
+            if data_score is not None and  self.args.select_by_dds_epoch < 0:
                 score = data_score[lang_pair]
             else:
                 score = None
