@@ -1001,7 +1001,7 @@ class Trainer(object):
                     datasize_p = self.task.dataset('train').p
                     target = torch.FloatTensor(datasize_p).view(1, -1)
                 print(target)
-                for p in self.data_optimizer.param_groups:
+                for p in data_optimizer.param_groups:
                     p['lr'] = 0.001
                 
                 if self.cuda:
@@ -1009,20 +1009,20 @@ class Trainer(object):
                     target = target.cuda()
                 l = 100
                 while l > 0.000001:
-                    a_logits = self.data_actor.forward(feature)
+                    a_logits = data_actor.forward(feature)
                     prob = torch.nn.functional.softmax(a_logits, dim=-1)
                     loss = torch.nn.functional.mse_loss(prob, target)
                     l = loss.item()
                     loss.backward()
-                    self.data_optimizer.step()
-                    self.data_optimizer.zero_grad()
+                    data_optimizer.step()
+                    data_optimizer.zero_grad()
                 with torch.no_grad():
-                    a_logits = self.data_actor.forward(feature)
+                    a_logits = data_actor.forward(feature)
                     prob = torch.nn.functional.softmax(a_logits, dim=-1)
                     sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
                     print("pretrained_sim", sim_list)
     
-                for p in self.data_optimizer.param_groups:
+                for p in data_optimizer.param_groups:
                     p['lr'] = self.args.data_actor_lr
             elif self.args.data_actor == 'lan':
                 if self.args.pretrain_type == "lan_dist":
@@ -1045,8 +1045,8 @@ class Trainer(object):
                     loss = torch.nn.functional.mse_loss(prob, target)
                     l = loss.item()
                     loss.backward()
-                    self.data_optimizer.step()
-                    self.data_optimizer.zero_grad()
+                    data_optimizer.step()
+                    data_optimizer.zero_grad()
                     step += 1
                 with torch.no_grad():
                     a_logits = data_actor.forward(feature)
