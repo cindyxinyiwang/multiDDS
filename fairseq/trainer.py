@@ -94,6 +94,25 @@ class Trainer(object):
         else:
             self.data_actor = None
             self.data_optimizer = None
+
+        if self.args.data_actor_step_update:
+            self.dev_itr = self.task.get_batch_iterator(
+                dataset=self.task.dataset('valid'),
+                max_tokens=self.args.max_tokens_valid,
+                max_sentences=self.args.max_sentences_valid,
+                max_positions=utils.resolve_max_positions(
+                    self.task.max_positions(),
+                    self.get_model().max_positions(),
+                ),
+                ignore_invalid_inputs=self.args.skip_invalid_size_inputs_valid_test,
+                required_batch_size_multiple=self.args.required_batch_size_multiple,
+                seed=self.args.seed,
+                num_shards=self.args.distributed_world_size,
+                shard_id=self.args.distributed_rank,
+                num_workers=self.args.num_workers,
+                noskip=True,
+            )[0]
+            self.dev_itr.next_epoch_itr(shuffle=True)
         
         if self.args.extra_data_actor == 'ave_emb':
             if self.args.data_actor_model_embed:
@@ -1269,23 +1288,9 @@ class Trainer(object):
         if self.args.data_actor_step_update and update_actor:
             # update data actor
             # get dev gradient
-            dev_itr = self.task.get_batch_iterator(
-                dataset=self.task.dataset('valid'),
-                max_tokens=self.args.max_tokens_valid,
-                max_sentences=self.args.max_sentences_valid,
-                max_positions=utils.resolve_max_positions(
-                    self.task.max_positions(),
-                    self.get_model().max_positions(),
-                ),
-                ignore_invalid_inputs=self.args.skip_invalid_size_inputs_valid_test,
-                required_batch_size_multiple=self.args.required_batch_size_multiple,
-                seed=self.args.seed,
-                num_shards=self.args.distributed_world_size,
-                shard_id=self.args.distributed_rank,
-                num_workers=self.args.num_workers,
-                noskip=True,
-            )[0].next_epoch_itr(shuffle=True)
-            for valid_sample in dev_itr:
+            if self.dev_itr.end_of_epoch():
+                self.dev_itr.next_epoch_itr(shuffle=True)
+            for valid_sample in self.dev_itr._cur_epoch_itr:
                 valid_sample = self._prepare_sample(valid_sample)
                 _loss, _sample_size, _logging_output = self.task.train_step(
                                         valid_sample, self.model, self.criterion, self.optimizer)

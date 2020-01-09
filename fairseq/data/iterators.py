@@ -178,7 +178,7 @@ class EpochBatchIterator(EpochBatchIterating):
         else:
             if offset == 0:
                 self.epoch += 1
-            print(offset, datasize, self.epoch)
+            #print(offset, datasize, self.epoch)
             self._cur_epoch_itr = self._get_iterator_for_epoch(
                 self.epoch, shuffle, fix_batches_to_gpus=fix_batches_to_gpus, offset=offset, datasize=datasize,
             )
