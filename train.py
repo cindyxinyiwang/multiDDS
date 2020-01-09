@@ -122,7 +122,7 @@ def train(args, trainer, task, epoch_itr, generator=None, filtered_maxpos_indice
     if epoch_itr.epoch == args.select_by_dds_epoch and args.select_by_dds_epoch > 0:
         epoch_itr, _ = trainer.get_filtered_train_iterator(epoch_itr.epoch, filtered_maxpos_indices=filtered_maxpos_indices)
 
-    if args.update_language_sampling > 0 and args.select_by_dds_epoch < 0:
+    if args.update_language_sampling > 0 and args.select_by_dds_epoch < 0 and (not args.data_actor_step_update):
         num_reset = len(epoch_itr.frozen_batches) // (args.update_language_sampling*args.update_freq[0]+1)
         datasize = args.update_language_sampling*args.update_freq[0]+1
         if num_reset * datasize < len(epoch_itr.frozen_batches):
