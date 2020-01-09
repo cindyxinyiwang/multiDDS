@@ -1,5 +1,5 @@
 import torch
-
+from fairseq.models import lstm
 
 class BaseActor(torch.nn.Module):
   def __init__(self, args, lan_size):
@@ -83,19 +83,18 @@ class AveEmbActor(torch.nn.Module):
             self.src_embed_tokens = emb
             self.trg_embed_tokens = emb
             embed_dim = emb.weight.size(1)
-        #self.project_out = torch.nn.Linear(2*embed_dim, 1)
-        self.project_out = torch.nn.Linear(embed_dim, 1)
+        self.project_out = torch.nn.Linear(2*embed_dim, 1)
         self.out_score_type = args.out_score_type
         
     def forward(self, src_tokens, trg_tokens):
         bsz, seqlen = src_tokens.size()
 
-        #src_word_count = (~src_tokens.eq(self.padding_idx)).long().sum(dim=-1, keepdim=True)
-        ## embed tokens
-        #x = self.src_embed_tokens(src_tokens)
-        #
-        ## B x T x C -> B x C
-        #x = x.sum(dim=1) / src_word_count.float()
+        src_word_count = (~src_tokens.eq(self.padding_idx)).long().sum(dim=-1, keepdim=True)
+        # embed tokens
+        x = self.src_embed_tokens(src_tokens)
+        
+        # B x T x C -> B x C
+        x = x.sum(dim=1) / src_word_count.float()
 
         trg_word_count = (~trg_tokens.eq(self.padding_idx)).long().sum(dim=-1, keepdim=True)
         # embed tokens
@@ -104,8 +103,8 @@ class AveEmbActor(torch.nn.Module):
         # B x T x C -> B x C
         y = y.sum(dim=1) / trg_word_count.float()
 
-        #inp = torch.cat([x, y], dim=-1)
-        inp = y
+        inp = torch.cat([x, y], dim=-1)
+        #inp = y
         # B x 1
         if self.out_score_type == 'sigmoid':
             score = torch.sigmoid(self.project_out(inp))
@@ -133,5 +132,41 @@ def Embedding(num_embeddings, embedding_dim, padding_idx=None):
     if padding_idx is not None:
         torch.nn.init.constant_(m.weight[padding_idx], 0)
     return m
+
+class LSTMActor(torch.nn.Module):
+    """LSTM based actor"""
+    def __init__(self, args, task):
+        super(LSTMActor, self).__init__()
+        args = lstm_wiseman_iwslt_de_en(args)
+        self.model = lstm.LSTMModel.build_model(args, task)
+        
+        self.project_out = torch.nn.Linear(2*embed_dim, 1)
+        self.out_score_type = args.out_score_type
+        
+    def forward(self, src_tokens, trg_tokens):
+        bsz, seqlen = src_tokens.size()
+
+        src_word_count = (~src_tokens.eq(self.padding_idx)).long().sum(dim=-1, keepdim=True)
+        # embed tokens
+        x = self.src_embed_tokens(src_tokens)
+        
+        # B x T x C -> B x C
+        x = x.sum(dim=1) / src_word_count.float()
+
+        trg_word_count = (~trg_tokens.eq(self.padding_idx)).long().sum(dim=-1, keepdim=True)
+        # embed tokens
+        y = self.trg_embed_tokens(trg_tokens)
+        
+        # B x T x C -> B x C
+        y = y.sum(dim=1) / trg_word_count.float()
+
+        inp = torch.cat([x, y], dim=-1)
+        #inp = y
+        # B x 1
+        if self.out_score_type == 'sigmoid':
+            score = torch.sigmoid(self.project_out(inp))
+        elif self.out_score_type == 'exp':
+            score = torch.exp(self.project_out(inp))
+        return score 
 
 
