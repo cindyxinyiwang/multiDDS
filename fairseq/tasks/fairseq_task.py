@@ -152,7 +152,7 @@ class FairseqTask(object):
                 indices = filtered_maxpos_indices
 
         # data selection: filter a subset of data
-        if data_actor is not None:
+        if data_filter_percentage > 0:
             indices = data_utils.filter_by_data_actor(indices, dataset, data_actor, data_filter_percentage, trainer=trainer)
 
         # create mini-batches with given size constraints

@@ -251,46 +251,85 @@ def filter_by_data_actor(indices, dataset, data_actor, data_filter_percentage=-1
         raise_exception (bool, optional): if ``True``, raise an exception if
             any elements are filtered (default: False).
     """
+    bins = 50
     if trainer.args.random_data_filter:
+        orig_data_size = len(indices)
         indices = np.array(indices)
         np.random.shuffle(indices)
+
+        #interval = int(len(indices)/bins)
+        #start_idx, end_idx, numfiltered = 0, 0, 0
+        #while end_idx < len(indices):
+        #    end_idx = min(len(indices), start_idx + interval)
+        #    current_indices = indices[start_idx:end_idx]
+        #    numfiltered += int(len(current_indices)*data_filter_percentage)
+        #    start_idx = end_idx
+
+        #indices = indices[numfiltered:]
         indices = indices[int(len(indices)*data_filter_percentage):]
+        print("Orignial data size={}; filtered data size={}".format(orig_data_size, len(indices)))
         indices.sort()
         return indices
-    # calculate data actor score
-    # create mini-batches with given size constraints
-    max_tokens = 4800
-    max_sentences = 100
-    batch_sampler = batch_by_size(
-        indices, dataset.num_tokens, max_tokens=max_tokens, max_sentences=max_sentences,
-    )
-    # return a reusable, sharded iterator
-    itr = iterators.EpochBatchIterator(
-        dataset=dataset,
-        collate_fn=dataset.collater,
-        batch_sampler=batch_sampler
-    ).next_epoch_itr(shuffle=False)
-    idx_start, idx_end = 0, 0
-    scores = np.zeros(len(indices))
-    ids = np.zeros(len(indices), dtype=np.int64)
-    for i, sample in enumerate(itr):
-        sample = trainer._prepare_sample(sample)
-        sample = list(sample.values())[0]
-        #print(sample)
-        score = data_actor(sample['net_input']['src_tokens'], sample['target']).data.cpu().numpy()
-        idx_start = idx_end
-        idx_end = idx_start + score.shape[0]
-        scores[idx_start:idx_end] = score.ravel()
-        ids[idx_start:idx_end] = sample['id'].data.cpu().numpy().ravel()
-    # argsort is ascending order
-    preserved_indices = np.argsort(scores)[int(len(indices)*data_filter_percentage):]
-    #print(scores)
-    #print(preserved_indices)
-    indices = np.array(ids)[preserved_indices]
-    indices.sort()
-    print("Orignial data size={}; filtered data size={}".format(len(ids), len(indices)))
-    #print(indices)
-    return indices
+    elif trainer.args.random_data_filter_by_len:
+        orig_data_size = len(indices)
+        indices = np.array(indices)
+        selected = []
+        interval = int(len(indices)/bins)
+        start_idx, end_idx = 0, 0
+        while end_idx < len(indices):
+            end_idx = min(len(indices), start_idx + interval)
+            current_indices = indices[start_idx:end_idx]
+            np.random.shuffle(current_indices)
+            selected.extend(current_indices[int(len(current_indices)*data_filter_percentage):].tolist())
+            start_idx = end_idx
+        indices = np.array(selected)
+        indices.sort()
+        print("Orignial data size={}; filtered data size={}".format(orig_data_size, len(indices)))
+        return indices
+    else:
+        # calculate data actor score
+        # create mini-batches with given size constraints
+        max_tokens = 4800
+        max_sentences = 100
+        batch_sampler = batch_by_size(
+            indices, dataset.num_tokens, max_tokens=max_tokens, max_sentences=max_sentences,
+        )
+        # return a reusable, sharded iterator
+        itr = iterators.EpochBatchIterator(
+            dataset=dataset,
+            collate_fn=dataset.collater,
+            batch_sampler=batch_sampler
+        ).next_epoch_itr(shuffle=False)
+        idx_start, idx_end = 0, 0
+        scores = np.zeros(len(indices))
+        ids = np.zeros(len(indices), dtype=np.int64)
+        for i, sample in enumerate(itr):
+            sample = trainer._prepare_sample(sample)
+            sample = list(sample.values())[0]
+            #print(sample)
+            score = data_actor(sample['net_input']['src_tokens'], sample['target']).data.cpu().numpy()
+            idx_start = idx_end
+            idx_end = idx_start + score.shape[0]
+            scores[idx_start:idx_end] = score.ravel()
+            ids[idx_start:idx_end] = sample['id'].data.cpu().numpy().ravel()
+        # argsort is ascending order
+        preserved_indices = np.argsort(scores)[int(len(indices)*data_filter_percentage):]
+        indices = np.array(ids)[preserved_indices]
+
+        #score_indices = np.argsort(scores)
+        #selected = []
+        #interval = int(len(scores)/bins)
+        #start_idx, end_idx = 0, 0
+        #while end_idx < len(score_indices):
+        #    end_idx = min(len(scores), start_idx + interval)
+        #    current_indices = score_indices[start_idx:end_idx]
+        #    np.random.shuffle(current_indices)
+        #    selected.extend(current_indices[int(len(current_indices)*data_filter_percentage):].tolist())
+        #    start_idx = end_idx
+        #indices = np.array(selected)
+        indices.sort()
+        print("Orignial data size={}; filtered data size={}".format(len(ids), len(indices)))
+        return indices
 
 
 def batch_by_size(

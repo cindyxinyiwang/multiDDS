@@ -83,29 +83,29 @@ class AveEmbActor(torch.nn.Module):
             self.src_embed_tokens = emb
             self.trg_embed_tokens = emb
             embed_dim = emb.weight.size(1)
-        self.project_out = torch.nn.Linear(2*embed_dim, 1)
+        #self.project_out = torch.nn.Linear(2*embed_dim, 1)
+        self.project_out = torch.nn.Linear(embed_dim, 1)
         self.out_score_type = args.out_score_type
         
     def forward(self, src_tokens, trg_tokens):
         bsz, seqlen = src_tokens.size()
 
-        src_word_count = (~src_tokens.eq(self.padding_idx)).long().sum(dim=-1, keepdim=True)
-        # embed tokens
-        x = self.src_embed_tokens(src_tokens)
-        #x = F.dropout(x, p=self.dropout_in, training=self.training)
-        
-        # B x T x C -> B x C
-        x = x.sum(dim=1) / src_word_count.float()
+        #src_word_count = (~src_tokens.eq(self.padding_idx)).long().sum(dim=-1, keepdim=True)
+        ## embed tokens
+        #x = self.src_embed_tokens(src_tokens)
+        #
+        ## B x T x C -> B x C
+        #x = x.sum(dim=1) / src_word_count.float()
 
         trg_word_count = (~trg_tokens.eq(self.padding_idx)).long().sum(dim=-1, keepdim=True)
         # embed tokens
         y = self.trg_embed_tokens(trg_tokens)
         
-        #y = torch.nn.functional.dropout(y, p=self.dropout_in, training=self.training)
         # B x T x C -> B x C
         y = y.sum(dim=1) / trg_word_count.float()
 
-        inp = torch.cat([x, y], dim=-1)
+        #inp = torch.cat([x, y], dim=-1)
+        inp = y
         # B x 1
         if self.out_score_type == 'sigmoid':
             score = torch.sigmoid(self.project_out(inp))

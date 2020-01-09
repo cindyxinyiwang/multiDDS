@@ -119,7 +119,7 @@ def train(args, trainer, task, epoch_itr, generator=None, filtered_maxpos_indice
     valid_subsets = args.valid_subset.split(',')
     max_update = args.max_update or math.inf
     # data selection: reset epoch iter to filter out unselected data
-    if epoch_itr.epoch > args.select_by_dds_epoch and args.select_by_dds_epoch > 0:
+    if epoch_itr.epoch == args.select_by_dds_epoch and args.select_by_dds_epoch > 0:
         epoch_itr, _ = trainer.get_filtered_train_iterator(epoch_itr.epoch, filtered_maxpos_indices=filtered_maxpos_indices)
 
     if args.update_language_sampling > 0 and args.select_by_dds_epoch < 0:
@@ -154,6 +154,7 @@ def train(args, trainer, task, epoch_itr, generator=None, filtered_maxpos_indice
                 update_actor = (i % args.update_language_sampling == 0)
             else:
                 update_actor = False
+            if ( epoch_itr.epoch > args.select_by_dds_epoch and args.select_by_dds_epoch > 0): update_actor = False
             log_output = trainer.train_step(samples, update_actor=update_actor)
             if log_output is None:
                 continue

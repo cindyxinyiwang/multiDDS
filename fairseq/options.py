@@ -324,6 +324,8 @@ def add_data_filter_args(parser):
                        help="the epoch to start filter data")
     group.add_argument("--random-data-filter", action="store_true",
                        help="the epoch to start filter data")
+    group.add_argument("--random-data-filter-by-len", action="store_true",
+                       help="the epoch to start filter data")
 
 
 def add_preprocess_args(parser):
