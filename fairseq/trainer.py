@@ -1066,7 +1066,7 @@ class Trainer(object):
             try:
                 with maybe_no_sync():
                     # forward and backward
-                    if self.args.data_actor == 'ave_emb' and update_actor:
+                    if self.args.data_actor_step_update and update_actor:
                         self.optimizer.clone_param()
                         data_actor = self.data_actor
                         cached_loss = {}
@@ -1266,7 +1266,7 @@ class Trainer(object):
                 prob = torch.nn.functional.softmax(a_logits, dim=-1)
                 sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
             self.task.dataset('train').update_sampling_distribution(sim_list)
-        if (self.args.data_actor == 'ave_emb' or self.args.extra_data_actor == 'ave_emb') and update_actor:
+        if self.args.data_actor_step_update and update_actor:
             # update data actor
             # get dev gradient
             dev_itr = self.task.get_batch_iterator(

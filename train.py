@@ -148,7 +148,7 @@ def train(args, trainer, task, epoch_itr, generator=None, filtered_maxpos_indice
             #print(samples)
             if args.extra_data_actor == 'ave_emb':
                 update_actor = (i % args.extra_update_language_sampling == 0)
-            elif args.data_actor == 'ave_emb':
+            elif args.data_actor_step_update:
                 update_actor = (i % args.update_language_sampling == 0)
             elif args.data_actor == 'lan' and args.data_actor_step_update:
                 update_actor = (i % args.update_language_sampling == 0)

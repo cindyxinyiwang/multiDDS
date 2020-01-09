@@ -341,13 +341,13 @@ class MultilingualTranslationTask(FairseqTask):
     def train_step(self, sample, model, criterion, optimizer, ignore_grad=False, data_actor=None, loss_copy=None, data_actor_out=None):
         model.train()
         agg_loss, agg_sample_size, agg_logging_output = 0., 0., {}
-        if (self.args.data_actor == 'ave_emb' or self.args.extra_data_actor == 'ave_emb') and data_actor is not None:
+        if (self.args.data_actor_step_update) and data_actor is not None:
             data_score, sum_score, example_size = {}, 0, 0
             for lang_pair in self.model_lang_pairs:
                 if lang_pair not in sample or sample[lang_pair] is None or len(sample[lang_pair]) == 0:
                     continue
                 cur_sample = sample[lang_pair]
-                score = data_actor(cur_sample['net_input']['src_tokens'], cur_sample['target'])
+                score = data_actor(cur_sample)
                 data_actor_out[lang_pair] = score
                 data_score[lang_pair] = score
                 sum_score += score.sum()
