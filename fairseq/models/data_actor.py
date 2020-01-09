@@ -191,10 +191,10 @@ class TransformerActor(torch.nn.Module):
         self.project_out = torch.nn.Linear(args.decoder_output_dim, 1)
         self.out_score_type = args.out_score_type
         
-    def forward(self, src_tokens, trg_tokens):
+    def forward(self, sample):
         # B X L X dim
-        net_output = self.model.extract_features(**sample['net_input'])
-        inp = net_input[:,-1,:]
+        net_output, _ = self.model.extract_features(**sample['net_input'])
+        inp = net_output[:,-1,:]
         # B x 1
         if self.out_score_type == 'sigmoid':
             score = torch.sigmoid(self.project_out(inp))
