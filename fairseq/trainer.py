@@ -254,7 +254,6 @@ class Trainer(object):
                 _optimizer = optim.FairseqBMUF(self.args, self._optimizer)
             return _optimizer
 
-        assert len(self.model.models) == 1
         model = list(self.model.models.values())[0]
         comopents = [model.encoder, model.decoder]
         self._optimizer, self._lr_scheduler = [], []
