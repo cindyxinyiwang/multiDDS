@@ -284,6 +284,8 @@ def get_parser(desc, default_task='translation'):
                         help='[lan_dist|datasize]')
     parser.add_argument('--feature-type', type=str, default='ones',
                         help='[ones|valid_loss|train_loss]')
+    parser.add_argument('--layerwise-dds', action='store_true',
+                        help='pretrain the data actor')
 
     parser.add_argument('--datasize-t', type=int, default=None,
                         help='temperature for controlling datasize sampling')
