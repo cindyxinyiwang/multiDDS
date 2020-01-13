@@ -233,6 +233,18 @@ def save_state(
         optim_history = []
     if extra_state is None:
         extra_state = {}
+    if type(optimizer) == list:
+        optimizer_name = optimizer[0].__class__.__name__
+    else:
+        optimizer_name = optimizer.__class__.__name__
+    if type(lr_scheduler) == list:
+        lr_scheduler_state = [l.state_dict() for l in lr_scheduler]
+    else:
+        lr_scheduler_state = lr_scheduler.state_dict()
+    if type(optimizer) == list:
+        optimizer_state = [convert_state_dict_type(o.state_dict()) for o in optimizer]
+    else:
+        optimizer_state = convert_state_dict_type(optimizer.state_dict())
     state_dict = {
         'args': args,
         'model': model_state_dict if model_state_dict else {},
@@ -240,7 +252,7 @@ def save_state(
             {
                 'criterion_name': criterion.__class__.__name__,
                 'optimizer_name': optimizer.__class__.__name__,
-                'lr_scheduler_state': lr_scheduler.state_dict(),
+                'lr_scheduler_state': lr_scheduler_state,
                 'num_updates': num_updates,
             }
         ],
@@ -253,7 +265,8 @@ def save_state(
     if utils.has_parameters(criterion):
         state_dict['criterion'] = criterion.state_dict()
     if not args.no_save_optimizer_state:
-        state_dict['last_optimizer_state'] = convert_state_dict_type(optimizer.state_dict())
+        #state_dict['last_optimizer_state'] = convert_state_dict_type(optimizer.state_dict())
+        state_dict['last_optimizer_state'] = optimizer_state
     torch_persistent_save(state_dict, filename)
 
 
