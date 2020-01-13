@@ -294,7 +294,7 @@ class Trainer(object):
                 data_actor_state, data_optimizer_state = None, None
             else:
                 optimizer = self.optimizer
-                lr_scheduler = self.lr_scheduler[0]
+                lr_scheduler = self.lr_scheduler
             checkpoint_utils.save_state(
                 filename, self.args, self.get_model().state_dict(), self.get_criterion(),
                 optimizer, lr_scheduler, self.get_num_updates(),
@@ -1252,7 +1252,6 @@ class Trainer(object):
                     optim_weights = [1 for _ in range(len(self.optimizer))]
                 else:
                     train_lan_id = self.task.langpair2id[list(sample.keys())[0]]
-                    print(train_lan_id)
                     optim_weights = self.cur_data_actor_probs[:, train_lan_id]
                     optim_weights = np.array(optim_weights) / optim_weights.sum() * self.cur_data_actor_probs.shape[0]
             # normalize grads by sample size
