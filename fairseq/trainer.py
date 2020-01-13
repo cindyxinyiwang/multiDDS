@@ -254,7 +254,6 @@ class Trainer(object):
                 _optimizer = optim.FairseqBMUF(self.args, self._optimizer)
             return _optimizer
 
-        assert len(self.model.models) == 1
         model = list(self.model.models.values())[0]
         comopents = [model.encoder, model.decoder]
         self._optimizer, self._lr_scheduler = [], []
@@ -1040,7 +1039,6 @@ class Trainer(object):
                     optim_weights = [1 for _ in range(len(self.optimizer))]
                 else:
                     train_lan_id = self.task.langpair2id[list(sample.keys())[0]]
-                    print(train_lan_id)
                     optim_weights = self.cur_data_actor_probs[:, train_lan_id]
                     optim_weights = np.array(optim_weights) / optim_weights.sum() * self.cur_data_actor_probs.shape[0]
             # normalize grads by sample size
