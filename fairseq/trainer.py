@@ -279,7 +279,7 @@ class Trainer(object):
                 data_actor_state = None
                 data_optimizer_state = None
             else:
-                if args.layerwise_dds:
+                if self.args.layerwise_dds:
                     data_actor_state = [d.state_dict() for d in self.data_actor]
                     data_optimizer_state = [d.state_dict() for d in self.data_optimizer]
                 else:
@@ -1127,7 +1127,7 @@ class Trainer(object):
                 self.optimizer.switch_param(clear_cache=True)
             # optimize data actor
             for k in cached_loss.keys():
-                reward = 1./eta * (cur_loss[k] - cached_loss[k])
+                reward = 1./eta * (cur_loss[k] - cached_loss[k]) * self.optimizer.get_lr()
                 if self.args.out_score_type == 'sigmoid':
                     #loss = -(torch.log(1e-20 + data_actor_out[k]) * reward.data)
                     loss = -(data_actor_out[k] * reward.data)
