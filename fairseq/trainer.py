@@ -275,11 +275,11 @@ class Trainer(object):
         """Save all training state in a checkpoint file."""
         if distributed_utils.is_master(self.args):  # only save one checkpoint
             extra_state['train_meters'] = self.meters
-            if self.data_actor is None or self.args.layerwise_dds:
+            if self.data_actor is None:
                 data_actor_state = None
                 data_optimizer_state = None
             else:
-                if args.layerwise_dds:
+                if self.args.layerwise_dds:
                     data_actor_state = [d.state_dict() for d in self.data_actor]
                     data_optimizer_state = [d.state_dict() for d in self.data_optimizer]
                 else:
