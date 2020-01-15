@@ -158,6 +158,8 @@ class TransformerActor(torch.nn.Module):
     """Transformer based actor"""
     def __init__(self, args, task):
         super(TransformerActor, self).__init__()
+        self.tgt_dict = task.target_dictionary
+        self.args = args
         args = copy.deepcopy(args)
         args.arch = 'transformer'
         args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 128)
@@ -194,7 +196,15 @@ class TransformerActor(torch.nn.Module):
     def forward(self, sample):
         # B X L X dim
         net_output, _ = self.model.extract_features(**sample['net_input'])
-        inp = net_output[:,-1,:]
+        if self.args.data_actor_feature_postprocess == 'average':
+            pad_mask = (~(sample['target'] == self.tgt_dict.pad())).float()
+            tgt_len = pad_mask.sum(dim=1).unsqueeze(1)
+            inp = net_output.sum(dim=1) / tgt_len
+        elif self.args.data_actor_feature_postprocess == 'last':
+            inp = net_output[:,-1,:]
+        else:
+            print('Unsupported data actor postprocess feature!')
+            exit(0)
         # B x 1
         if self.out_score_type == 'sigmoid':
             score = torch.sigmoid(self.project_out(inp))
