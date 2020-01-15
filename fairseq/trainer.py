@@ -66,10 +66,21 @@ class Trainer(object):
                langs = self.args.lang_pairs
             else:
                langs = self.args.langs.split(',')
-            self.data_actor = BaseActor(args, len(langs))
-            if self.cuda:
-                self.data_actor = self.data_actor.cuda()
-            self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
+            self.cur_data_actor_probs = []
+            if self.args.layerwise_dds:
+                _ = self.optimizer
+                self.data_actor, self.data_optimizer = [], []
+                assert type(self._optimizer) == list
+                for _ in range(len(self._optimizer)):
+                    self.data_actor.append(BaseActor(args, len(langs)))
+                    if self.cuda:
+                        self.data_actor[-1].cuda()
+                    self.data_optimizer.append(torch.optim.Adam([p for p in self.data_actor[-1].parameters() if p.requires_grad], lr=self.args.data_actor_lr))
+            else:
+                self.data_actor = BaseActor(args, len(langs))
+                if self.cuda:
+                    self.data_actor = self.data_actor.cuda()
+                self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
         elif self.args.data_actor == 'ave_emb':
             if self.args.data_actor_model_embed:
                 self.data_actor = AveEmbActor(args, task, emb=self._model.embed_tokens)
@@ -193,6 +204,9 @@ class Trainer(object):
         return self._lr_scheduler
 
     def _build_optimizer(self):
+        if self.args.layerwise_dds:
+            self._build_transformer_optimizer_list()
+            return
         params = list(
             filter(
                 lambda p: p.requires_grad,
@@ -221,24 +235,69 @@ class Trainer(object):
         self._lr_scheduler = lr_scheduler.build_lr_scheduler(self.args, self.optimizer)
         self._lr_scheduler.step_update(0)
 
+    def _build_transformer_optimizer_list(self):
+        def build(params):
+            if self.args.fp16:
+                if self.cuda and torch.cuda.get_device_capability(0)[0] < 7:
+                    print('| WARNING: your device does NOT support faster training with --fp16, '
+                          'please switch to FP32 which is likely to be faster')
+                if self.args.memory_efficient_fp16:
+                    _optimizer = optim.MemoryEfficientFP16Optimizer.build_optimizer(self.args, params)
+                else:
+                    _optimizer = optim.FP16Optimizer.build_optimizer(self.args, params)
+            else:
+                if self.cuda and torch.cuda.get_device_capability(0)[0] >= 7:
+                    print('| NOTICE: your device may support faster training with --fp16')
+                _optimizer = optim.build_optimizer(self.args, params)
+    
+            if self.args.use_bmuf:
+                _optimizer = optim.FairseqBMUF(self.args, self._optimizer)
+            return _optimizer
+
+        model = list(self.model.models.values())[0]
+        comopents = [model.encoder, model.decoder]
+        self._optimizer, self._lr_scheduler = [], []
+
+        for i, comopent in enumerate(comopents):
+            params = list(
+                filter(
+                    lambda p: p.requires_grad,
+                    chain(comopent.parameters(), self.criterion.parameters()),
+                )
+            )
+            self._optimizer.append(build(params))
+            # We should initialize the learning rate scheduler immediately after
+            # building the optimizer, so that the initial learning rate is set.
+            self._lr_scheduler.append(lr_scheduler.build_lr_scheduler(self.args, self._optimizer[-1]))
+            self._lr_scheduler[-1].step_update(0)
+
     def save_checkpoint(self, filename, extra_state):
         """Save all training state in a checkpoint file."""
         if distributed_utils.is_master(self.args):  # only save one checkpoint
             extra_state['train_meters'] = self.meters
-            if self.data_actor is None:
+            if self.data_actor is None or self.args.layerwise_dds:
                 data_actor_state = None
                 data_optimizer_state = None
             else:
-                data_actor_state = self.data_actor.state_dict()
-                data_optimizer_state = self.data_optimizer.state_dict()
+                if self.args.layerwise_dds:
+                    data_actor_state = [d.state_dict() for d in self.data_actor]
+                    data_optimizer_state = [d.state_dict() for d in self.data_optimizer]
+                else:
+                    data_actor_state = self.data_actor.state_dict()
+                    data_optimizer_state = self.data_optimizer.state_dict()
             if self.extra_data_actor is None:
                 extra_data_actor_state = None
                 extra_data_optimizer_state = None
             else:
                 extra_data_actor_state = self.extra_data_actor.state_dict()
                 extra_data_optimizer_state = self.extra_data_optimizer.state_dict()
-
-
+            if self.args.layerwise_dds:
+                optimizer = self.optimizer[0]
+                lr_scheduler = self.lr_scheduler[0]
+                data_actor_state, data_optimizer_state = None, None
+            else:
+                optimizer = self.optimizer
+                lr_scheduler = self.lr_scheduler
             checkpoint_utils.save_state(
                 filename, self.args, self.get_model().state_dict(), self.get_criterion(),
                 self.optimizer, self.lr_scheduler, self.get_num_updates(),
@@ -262,7 +321,11 @@ class Trainer(object):
                 state = checkpoint_utils.load_checkpoint_to_cpu(filename)
                 if 'data_actor' in state and state['data_actor']:
                     print("loading data actor state only...")
-                    self.data_actor.load_state_dict(state['data_actor'])
+                    if self.args.layerwise_dds:
+                        for i, d in enumerate(self.data_actor):
+                            d.load_state_dict(state['data_actor'][i])
+                    else:
+                        self.data_actor.load_state_dict(state['data_actor'])
         else:
             if os.path.exists(filename):
                 state = checkpoint_utils.load_checkpoint_to_cpu(filename)
@@ -283,9 +346,17 @@ class Trainer(object):
                 last_optim_state = state.get('last_optimizer_state', None)
 
                 if 'data_actor' in state and state['data_actor']:
-                    self.data_actor.load_state_dict(state['data_actor'])
+                    if self.args.layerwise_dds:
+                        for i, d in enumerate(self.data_actor):
+                            d.load_state_dict(state['data_actor'][i])
+                    else:
+                        self.data_actor.load_state_dict(state['data_actor'])
                 if 'data_optimizer' in state and state['data_optimizer']:
-                    self.data_optimizer.load_state_dict(state['data_optimizer'])
+                    if self.args.layerwise_dds:
+                        for i, d in enumerate(self.data_optimizer):
+                            d.load_state_dict(state['data_optimizer'][i])
+                    else:
+                        self.data_optimizer.load_state_dict(state['data_optimizer'])
                 if 'extra_data_actor' in state and state['extra_data_actor']:
                     self.extra_data_actor.load_state_dict(state['extra_data_actor'])
                 if 'extra_data_optimizer' in state and state['extra_data_optimizer']:
@@ -302,11 +373,20 @@ class Trainer(object):
                 assert last_optim['optimizer_name'] == self.optimizer.__class__.__name__, \
                     'Optimizer does not match; please reset the optimizer (--reset-optimizer).'
 
-                if not reset_lr_scheduler:
-                    self.lr_scheduler.load_state_dict(last_optim['lr_scheduler_state'])
-                self.optimizer.load_state_dict(last_optim_state, optimizer_overrides)
-
-                self.set_num_updates(last_optim['num_updates'])
+                if self.args.layerwise_dds:
+                    if not reset_lr_scheduler:
+                        for i, l in enumerate(self.lr_scheduler):
+                            l.load_state_dict(last_optim['lr_scheduler_state'][i])
+                    for i, o in enumerate(self.optimizer):
+                        o.load_state_dict(last_optim_state[i], optimizer_overrides)
+    
+                    self.set_num_updates(last_optim['num_updates'])
+                else:
+                    if not reset_lr_scheduler:
+                        self.lr_scheduler.load_state_dict(last_optim['lr_scheduler_state'])
+                    self.optimizer.load_state_dict(last_optim_state, optimizer_overrides)
+    
+                    self.set_num_updates(last_optim['num_updates'])
 
             if extra_state is not None:
                 epoch = extra_state['train_iterator']['epoch']
@@ -337,14 +417,26 @@ class Trainer(object):
         self.criterion.train()
         self.zero_grad()
 
-        # #dev dataset x #train dataset
+        # #n_optims x #dev dataset x #train dataset
         all_sim_list = []
         valid_losses = [0 for _ in range(len(self.task.dataset('valid').datasets.keys()))] 
         valid_ntoks = [0 for _ in range(len(self.task.dataset('valid').datasets.keys()))] 
         train_losses = [0 for _ in range(len(self.task.dataset('train').datasets.keys()))] 
         train_ntoks = [0 for _ in range(len(self.task.dataset('train').datasets.keys()))] 
-        if self.args.exact_update:
-            self.optimizer.clone_param()
+        if self.args.layerwise_dds:
+            optimizers = self.optimizer
+            data_actors = self.data_actor
+            data_optimizers = self.data_optimizer
+        else:
+            optimizers = [self.optimizer]
+            data_actors = [self.data_actor]
+            data_optimizers = [self.data_optimizer]
+
+        if len(self.cur_data_actor_probs) == 0:
+            self.cur_data_actor_probs = [[] for _ in range(len(data_optimizers))]
+        for optim_id, optimizer in enumerate(optimizers):
+            optimizer.clone_param()
+            train_sim_list = []
             for j, train_key in enumerate(self.task.dataset('train').datasets.keys()):
                 train_sample = self.task.dataset('train').get_sample_with_key(train_key)
                 train_sample = self._prepare_sample(train_sample)
@@ -354,12 +446,12 @@ class Trainer(object):
                 train_ntoks[j] += list(logging_output.values())[0]['ntokens']
                 if sample_size > 0:
                     loss = loss / sample_size
-                self.optimizer.save_train_grad_t0()
+                optimizer.save_train_grad_t0()
                 self.zero_grad()
                 if self.cuda:
                     torch.cuda.empty_cache()
-                sim_list = []
-                self.optimizer.add_grad(eta=0.001)
+                valid_sim_list = []
+                optimizer.add_grad(eta=0.001)
                 for i, valid_key in enumerate(self.task.dataset('valid').datasets.keys()):
                     sample = self.task.dataset('valid').get_sample_with_key(valid_key)
                     sample = self._prepare_sample(sample)
@@ -370,88 +462,22 @@ class Trainer(object):
                     valid_ntoks[i] += list(logging_output.values())[0]['ntokens']
                     if sample_size > 0:
                         loss = loss / sample_size
-                    sim, cur_grad_sim, prev_grad_sim = self.optimizer.get_grad_sim()
-                    sim_list.append(sim)
+                    sim, cur_grad_sim, prev_grad_sim = optimizer.get_grad_sim()
+                    valid_sim_list.append(sim)
                     self.zero_grad()
                     if self.cuda:
                         torch.cuda.empty_cache()
-                self.optimizer.switch_param()
-                all_sim_list.append(sim_list)
+                optimizer.switch_param()
+                train_sim_list.append(valid_sim_list)
             for i in range(len(valid_losses)):
                 valid_losses[i] = np.exp(valid_losses[i]/valid_ntoks[i])
             for i in range(len(train_losses)):
                 train_losses[i] = np.exp(train_losses[i]/train_ntoks[i])
+            # n_valid * n_train
+            train_sim_list = np.transpose(np.array(train_sim_list))
+            optimizer.switch_param(clear_cache=True)
+            all_sim_list.append(train_sim_list)
 
-            all_sim_list = np.transpose(np.array(all_sim_list))
-            self.optimizer.switch_param(clear_cache=True)
-        elif self.args.discount_grad:
-            for j, train_key in enumerate(self.task.dataset('train').datasets.keys()):
-                train_sample = self.task.dataset('train').get_sample_with_key(train_key)
-                train_sample = self._prepare_sample(train_sample)
-                loss, sample_size, logging_output = self.task.train_step(
-                                        train_sample, self.model, self.criterion, self.optimizer)
-                if sample_size > 0:
-                    loss = loss / sample_size
-                if j == 0:
-                  train_losses.append(loss)
-                self.optimizer.save_train_grad_id(j)
-                self.zero_grad()
-                if self.cuda:
-                    torch.cuda.empty_cache()
-                sim_list = []
-                for i, valid_key in enumerate(self.task.dataset('valid').datasets.keys()):
-                    sample = self.task.dataset('valid').get_sample_with_key(valid_key)
-                    sample = self._prepare_sample(sample)
-                    # calculate sim
-                    loss, sample_size, logging_output = self.task.train_step(
-                                            sample, self.model, self.criterion, self.optimizer)
-                    if sample_size > 0:
-                        loss = loss / sample_size
-                    sim, cur_grad_sim, prev_grad_sim = self.optimizer.get_grad_sim_id(j)
-                    if j==0:
-                        valid_losses.append(loss)
-                    sim_list.append(sim)
-                    self.zero_grad()
-                    if self.cuda:
-                        torch.cuda.empty_cache()
-                all_sim_list.append(sim_list)
-            all_sim_list = np.transpose(np.array(all_sim_list))
-
-        else:
-            for i, valid_key in enumerate(self.task.dataset('valid').datasets.keys()):
-                #for _ in range(self.args.loss_steps):
-                valid_sample = self.task.dataset('valid').get_sample_with_key(valid_key)
-                valid_sample = self._prepare_sample(valid_sample)
-                loss, sample_size, logging_output = self.task.train_step(
-                                        valid_sample, self.model, self.criterion, self.optimizer)
-                if sample_size > 0:
-                    loss = loss / sample_size
-                valid_losses.append(loss)
-                
-                self.optimizer.save_dev_grad()
-                self.zero_grad()
-                if self.cuda:
-                    torch.cuda.empty_cache()
-                sim_list = []
-                for j, key in enumerate(self.task.dataset('train').datasets.keys()):
-                    #if args.no_dev and key == valid_key:
-                    #    sim_list.append(1.0)
-                    #else:
-                    #for _ in range(self.args.loss_steps):
-                    sample = self.task.dataset('train').get_sample_with_key(key)
-                    sample = self._prepare_sample(sample)
-                    # calculate sim
-                    loss, sample_size, logging_output = self.task.train_step(
-                                            sample, self.model, self.criterion, self.optimizer)
-                    if sample_size > 0:
-                        loss = loss / sample_size
-                    train_losses.append(loss)
-                    sim, cur_grad_sim, prev_grad_sim = self.optimizer.get_grad_sim()
-                    sim_list.append(sim)
-                    self.zero_grad()
-                    if self.cuda:
-                        torch.cuda.empty_cache()
-                all_sim_list.append(sim_list)
         if args.pretrain_data_actor and not self.pretrained:
             if self.args.feature_type == 'ones':
                 feature = torch.ones(1, len(self.task.dataset('train').datasets.keys()))
@@ -466,308 +492,131 @@ class Trainer(object):
                 exit(1)
             self.pretrained = True
             self.pretrain_data_actor(feature)
-        # get rewards for languages based on different objectives
-        if self.args.utility_type == 'ave':
-            if self.language_weight is not None:
-                all_sim_list = np.array(all_sim_list) * self.language_weight
-            if self.args.loss_weight is not None:
-                if len(self.valid_losses) != 0: 
-                    losses = []
-                    for val_key in self.task.dataset('valid').datasets.keys():
-                        print(val_key, self.valid_losses[val_key])
-                        losses.append(self.valid_losses[val_key])
-                    losses = np.array(losses)
-                    if self.args.loss_weight == "low":
-                        # upweight hard languages
-                        base = np.min(losses)
-                        losses = losses / base
-                    print("original all sim list")
-                    print(all_sim_list)
-                    all_sim_list = np.array(all_sim_list) * losses.reshape(-1, 1)
-                    print("final all sim list")
-                    print(all_sim_list)
-            sim_list = np.mean(np.array(all_sim_list), axis=0).tolist()
-            print(sim_list)
-        elif self.args.utility_type == 'min-half':
-            # find the valid languages with max losses
-            # sort by loss, ascending order
-            if self.language_weight is not None:
-                all_sim_list = np.array(all_sim_list) * self.language_weight
-            if self.args.loss_weight is not None:
-                if len(self.valid_losses) != 0: 
-                    losses = []
-                    for val_key in self.task.dataset('valid').datasets.keys():
-                        print(val_key, self.valid_losses[val_key])
-                        losses.append(self.valid_losses[val_key])
-                    losses = np.array(losses)
-                    sorted_indices = np.argsort(losses)
-                    selected_indices = sorted_indices[len(losses)//2:]
+
+        # update each optimizer using its reward
+        for optim_id, optimizer in enumerate(optimizers):
+            # get rewards for languages based on different objectives
+            sim_list = all_sim_list[optim_id]
+            data_actor = data_actors[optim_id]
+            data_optimizer = data_optimizers[optim_id]
+            if self.args.utility_type == 'ave':
+                sim_list = np.mean(np.array(sim_list), axis=0).tolist()
+                print(sim_list)
+            elif self.args.utility_type == 'min-half':
+                # find the valid languages with max losses
+                # sort by loss, ascending order
+                if self.language_weight is not None:
+                    sim_list = np.array(sim_list) * self.language_weight
+                if self.args.loss_weight is not None:
+                    if len(self.valid_losses) != 0: 
+                        losses = []
+                        for val_key in self.task.dataset('valid').datasets.keys():
+                            print(val_key, self.valid_losses[val_key])
+                            losses.append(self.valid_losses[val_key])
+                        losses = np.array(losses)
+                        sorted_indices = np.argsort(losses)
+                        selected_indices = sorted_indices[len(losses)//2:]
+                        val_keys = list(self.task.dataset('valid').datasets.keys())
+                        selected_sim_list = []
+                        print('selected keys:')
+                        for k, sim in enumerate(sim_list):
+                            if k in selected_indices:
+                                selected_sim_list.append(sim)
+                                print(val_keys[k], losses[k])
+                        sim_list = np.mean(np.array(selected_sim_list), axis=0).tolist()
+                    else:
+                        sim_list = np.mean(np.array(sim_list), axis=0).tolist()
+                elif epoch >= args.switch_obj_epoch:
+                    sorted_indices = np.argsort(valid_losses)
+                    selected_indices = sorted_indices[len(valid_losses)//2:]
                     val_keys = list(self.task.dataset('valid').datasets.keys())
-                    selected_sim_list = []
+                    for i, val_key in enumerate(val_keys):
+                        print(val_key, valid_losses[i])
                     print('selected keys:')
-                    for k, sim in enumerate(all_sim_list):
+                    for k in selected_indices:
+                        print(val_keys[k], valid_losses[k])
+                    selected_sim_list = []
+                    for k, sim in enumerate(sim_list):
                         if k in selected_indices:
                             selected_sim_list.append(sim)
-                            print(val_keys[k], losses[k])
                     sim_list = np.mean(np.array(selected_sim_list), axis=0).tolist()
                 else:
-                    sim_list = np.mean(np.array(all_sim_list), axis=0).tolist()
-            elif epoch >= args.switch_obj_epoch:
-                sorted_indices = np.argsort(valid_losses)
-                selected_indices = sorted_indices[len(valid_losses)//2:]
-                val_keys = list(self.task.dataset('valid').datasets.keys())
-                for i, val_key in enumerate(val_keys):
-                    print(val_key, valid_losses[i])
-                print('selected keys:')
-                for k in selected_indices:
-                    print(val_keys[k], valid_losses[k])
-                selected_sim_list = []
-                for k, sim in enumerate(all_sim_list):
-                    if k in selected_indices:
-                        selected_sim_list.append(sim)
-                sim_list = np.mean(np.array(selected_sim_list), axis=0).tolist()
-            else:
-                sim_list = np.mean(np.array(all_sim_list), axis=0).tolist()
-            print(sim_list)
-        elif self.args.utility_type == 'max-half':
-            # find the valid languages with max losses
-            # sort by loss, ascending order
-            if self.language_weight is not None:
-                all_sim_list = np.array(all_sim_list) * self.language_weight
-            if self.args.loss_weight is not None:
-                if len(self.valid_losses) != 0: 
-                    losses = []
-                    for val_key in self.task.dataset('valid').datasets.keys():
-                        print(val_key, self.valid_losses[val_key])
-                        losses.append(self.valid_losses[val_key])
-                    losses = np.array(losses)
-                    sorted_indices = np.argsort(losses)
-                    selected_indices = sorted_indices[:len(losses)//2]
+                    sim_list = np.mean(np.array(sim_list), axis=0).tolist()
+                print(sim_list)
+            elif self.args.utility_type == 'max-half':
+                # find the valid languages with max losses
+                # sort by loss, ascending order
+                if self.language_weight is not None:
+                    sim_list = np.array(sim_list) * self.language_weight
+                if self.args.loss_weight is not None:
+                    if len(self.valid_losses) != 0: 
+                        losses = []
+                        for val_key in self.task.dataset('valid').datasets.keys():
+                            print(val_key, self.valid_losses[val_key])
+                            losses.append(self.valid_losses[val_key])
+                        losses = np.array(losses)
+                        sorted_indices = np.argsort(losses)
+                        selected_indices = sorted_indices[:len(losses)//2]
+                        val_keys = list(self.task.dataset('valid').datasets.keys())
+                        selected_sim_list = []
+                        print('selected keys:')
+                        for k, sim in enumerate(sim_list):
+                            if k in selected_indices:
+                                selected_sim_list.append(sim)
+                                print(val_keys[k], losses[k])
+                        sim_list = np.mean(np.array(selected_sim_list), axis=0).tolist()
+                    else:
+                        sim_list = np.mean(np.array(sim_list), axis=0).tolist()
+                elif epoch >= args.switch_obj_epoch:
+                    sorted_indices = np.argsort(valid_losses)
+                    selected_indices = sorted_indices[:len(valid_losses)//2]
                     val_keys = list(self.task.dataset('valid').datasets.keys())
-                    selected_sim_list = []
+                    for i, val_key in enumerate(val_keys):
+                        print(val_keys[i], valid_losses[i])
                     print('selected keys:')
-                    for k, sim in enumerate(all_sim_list):
+                    for k in selected_indices:
+                        print(val_keys[k], valid_losses[k])
+                    selected_sim_list = []
+                    for k, sim in enumerate(sim_list):
                         if k in selected_indices:
                             selected_sim_list.append(sim)
-                            print(val_keys[k], losses[k])
                     sim_list = np.mean(np.array(selected_sim_list), axis=0).tolist()
                 else:
-                    sim_list = np.mean(np.array(all_sim_list), axis=0).tolist()
-            elif epoch >= args.switch_obj_epoch:
-                sorted_indices = np.argsort(valid_losses)
-                selected_indices = sorted_indices[:len(valid_losses)//2]
-                val_keys = list(self.task.dataset('valid').datasets.keys())
-                for i, val_key in enumerate(val_keys):
-                    print(val_keys[i], valid_losses[i])
-                print('selected keys:')
-                for k in selected_indices:
-                    print(val_keys[k], valid_losses[k])
-                selected_sim_list = []
-                for k, sim in enumerate(all_sim_list):
-                    if k in selected_indices:
-                        selected_sim_list.append(sim)
-                sim_list = np.mean(np.array(selected_sim_list), axis=0).tolist()
-            else:
-                sim_list = np.mean(np.array(all_sim_list), axis=0).tolist()
-            print(sim_list)
-
-        elif self.args.utility_type == 'median':
-            if self.language_weight is not None:
-                all_sim_list = np.array(all_sim_list) * self.language_weight
-            if self.args.loss_weight is not None:
-                if len(self.valid_losses) != 0: 
-                    losses = []
-                    for val_key in self.task.dataset('valid').datasets.keys():
-                        print(val_key, self.valid_losses[val_key])
-                        losses.append(self.valid_losses[val_key])
-                    losses = np.array(losses)
-                    sorted_indices = np.argsort(losses)
-                    selected_indices = [sorted_indices[len(losses)//2], sorted_indices[len(losses)//2-1]]
-                    val_keys = list(self.task.dataset('valid').datasets.keys())
-                    selected_sim_list = []
-                    print('selected keys:')
-                    for k, sim in enumerate(all_sim_list):
-                        if k in selected_indices:
-                            selected_sim_list.append(sim)
-                            print(val_keys[k], losses[k])
-                    sim_list = np.mean(np.array(selected_sim_list), axis=0).tolist()
-                else:
-                    sim_list = np.mean(np.array(all_sim_list), axis=0).tolist()
-            else:
-                sorted_indices = np.argsort(valid_losses)
-                selected_index = sorted_indices[len(valid_losses)//2]
-                val_keys = list(self.task.dataset('valid').datasets.keys())
-                print('selected keys:')
-                print(val_keys[selected_index], valid_losses[selected_index])
-                sim_list = all_sim_list[selected_index]
-            print(sim_list)
-        elif self.args.utility_type == 'min':
-            if self.language_weight is not None:
-                all_sim_list = np.array(all_sim_list) * self.language_weight
-            sorted_indices = np.argsort(valid_losses)
-            selected_index = sorted_indices[-1]
-            val_keys = list(self.task.dataset('valid').datasets.keys())
-            print('selected keys:')
-            print(val_keys[selected_index], valid_losses[selected_index])
-            sim_list = all_sim_list[selected_index]
-            print(sim_list)
-        elif self.args.utility_type == 'ave_minus_weight':
-            if self.language_weight is not None:
-                all_sim_list = np.array(all_sim_list) * self.language_weight
-            all_sim_list = np.array(all_sim_list)
-            print(all_sim_list)
-            sim_list = np.mean(all_sim_list, axis=0)
-            print(self.task.dataset('train').p)
-            current_p = np.array(self.task.dataset('train').p)
-            current_p.resize(1, len(all_sim_list))
-            weighted_sim = all_sim_list * current_p
-            np.fill_diagonal(weighted_sim, 0)
-            weighted_sim = np.sum(weighted_sim, axis=1)
-            print(weighted_sim)
-            sim_list = (sim_list - weighted_sim).tolist()
-            print(sim_list)
-        elif self.args.utility_type == 'ave_minus_baseline':
-            all_sim_list = np.array(all_sim_list)
-            print(all_sim_list)
-            print(self.task.dataset('train').p)
-            current_p = np.array(self.task.dataset('train').p)
-            current_p.resize(1, len(all_sim_list))
-            weighted_sim = all_sim_list * current_p
-            weighted_sim = np.sum(weighted_sim, axis=1)
-            print(weighted_sim)
-            if self.language_weight is not None:
-                sim_list = (all_sim_list - weighted_sim) * self.language_weight
-                sim_list = np.mean(sim_list, axis=0).tolist()
-            else:
-                sim_list = np.mean((all_sim_list - weighted_sim), axis=0).tolist()
-            print(sim_list)
-        elif self.args.utility_type == 'ave_minus_baseline_min-half':
-            # find the valid languages with max losses
-            # sort by loss, ascending order
-            sorted_indices = np.argsort(valid_losses)
-            selected_indices = sorted_indices[len(valid_losses)//2:]
-            val_keys = list(self.task.dataset('valid').datasets.keys())
-            print('selected keys:')
-            for k in selected_indices:
-                print(val_keys[k], valid_losses[k])
-            
-            all_sim_list = np.array(all_sim_list)
-            print(all_sim_list)
-            print(self.task.dataset('train').p)
-            current_p = np.array(self.task.dataset('train').p)
-            current_p.resize(1, len(all_sim_list))
-            weighted_sim = all_sim_list * current_p
-            weighted_sim = np.sum(weighted_sim, axis=1)
-            print(weighted_sim)
-            if self.language_weight is not None:
-                sim_list = (all_sim_list - weighted_sim) * self.language_weight
-            else:
-                sim_list = (all_sim_list - weighted_sim)
-
-            sim_list = sim_list.tolist()
-            selected_sim_list = []
-            for k, sim in enumerate(sim_list):
-                if k in selected_indices:
-                    selected_sim_list.append(sim)
-            sim_list = selected_sim_list
-            sim_list = np.mean(sim_list, axis=0).tolist()
-            print(sim_list)
-        if self.args.baseline:
-            cur_reward = np.array(sim_list)
-            if self.baseline is None:
-                self.baseline = np.mean(cur_reward)
-            else:
-                sim_list = cur_reward - self.baseline
-                self.baseline = 0.5*self.baseline + 0.5*np.mean(cur_reward)
-                sim_list = sim_list.tolist()
-            print("baseline: {}".format(self.baseline))
-            print("reward")
-            print(sim_list)  
-        if self.args.data_actor == 'base':
-            if self.args.feature_type == 'ones':
-                feature = torch.ones(1, len(self.task.dataset('train').datasets.keys()))
-            elif self.args.feature_type == 'valid_loss':
-                feature = torch.FloatTensor(valid_losses).view(1, -1)
-                feature = feature/feature.sum()
-            elif self.args.feature_type == 'train_loss':
-                feature = torch.FloatTensor(train_losses).view(1, -1)
-                feature = feature/feature.sum()
-            print('feature')
-            print(feature)
-            grad_scale = torch.FloatTensor(sim_list).view(1, -1)
-
-            if self.cuda:
-                feature = feature.cuda()
-                grad_scale = grad_scale.cuda()
-            for _ in range(self.args.data_actor_optim_step):
-                a_logits = self.data_actor.forward(feature)
-                loss = -torch.nn.functional.log_softmax(a_logits, dim=-1)
-                if self.args.scale_reward:
-                    loss = loss * torch.softmax(a_logits, dim=-1).data
-                loss = (loss * grad_scale).sum()
-                loss.backward()
-                self.data_optimizer.step()
-                self.data_optimizer.zero_grad()
-            with torch.no_grad():
-                a_logits = self.data_actor.forward(feature)
-                prob = torch.nn.functional.softmax(a_logits, dim=-1)
-                sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
-        elif self.args.data_actor == 'base_weight':
-            print(all_sim_list)
-            feature = torch.ones(1, len(self.task.dataset('train').datasets.keys()))
-            grad_scale = torch.FloatTensor(all_sim_list)
-            if self.cuda:
-                feature = feature.cuda()
-                grad_scale = grad_scale.cuda()
-            for _ in range(self.args.data_actor_optim_step):
-                a_logits = self.data_actor.forward(feature)
-                a_prob = torch.softmax(a_logits, dim=-1)
-                loss = (grad_scale * a_prob.view(-1, 1)) * a_prob.view(1, -1)
-                loss = loss.sum()
-                loss.backward()
-                self.data_optimizer.step()
-                self.data_optimizer.zero_grad()
-            with torch.no_grad():
-                a_logits = self.data_actor.forward(feature)
-                prob = torch.nn.functional.softmax(a_logits, dim=-1)
-                sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
-        elif self.args.data_actor == 'only_grad':
-            sim_list = np.exp(sim_list)
-            sim_list = sim_list/np.sum(sim_list)
-        elif self.args.data_actor == 'interpolate_grad':
-            orig_p = np.array(self.task.dataset('train').p)
-            log_p = np.log(orig_p)
-            print(log_p)
-            log_p += np.array(sim_list) * self.args.data_actor_lr
-            print(log_p)
-            sim_list = np.exp(log_p)
-        elif self.args.data_actor == 'lan':
-            feature = torch.LongTensor([i for i in range(len(self.task.dataset('train').datasets.keys()))]).view(1, -1)
-            print('feature')
-            print(feature)
-            grad_scale = torch.FloatTensor(sim_list).view(1, -1)
-            if self.cuda:
-                feature = feature.cuda()
-                grad_scale = grad_scale.cuda()
-            if self.args.scale_reward:
-                a_logits = self.data_actor.forward(feature)
-                scale_reward = torch.softmax(a_logits, dim=-1).data
-            for _ in range(self.args.data_actor_optim_step):
-                a_logits = self.data_actor.forward(feature)
-                loss = -torch.nn.functional.log_softmax(a_logits, dim=-1)
-                if self.args.scale_reward:
-                    loss = loss * scale_reward
-                loss = (loss * grad_scale).sum()
-                loss.backward()
-                self.data_optimizer.step()
-                self.data_optimizer.zero_grad()
-            with torch.no_grad():
-                a_logits = self.data_actor.forward(feature)
-                prob = torch.nn.functional.softmax(a_logits, dim=-1)
-                sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
-
+                    sim_list = np.mean(np.array(sim_list), axis=0).tolist()
+                print(sim_list)
+    
+            if self.args.data_actor == 'base':
+                if self.args.feature_type == 'ones':
+                    feature = torch.ones(1, len(self.task.dataset('train').datasets.keys()))
+                elif self.args.feature_type == 'valid_loss':
+                    feature = torch.FloatTensor(valid_losses).view(1, -1)
+                    feature = feature/feature.sum()
+                elif self.args.feature_type == 'train_loss':
+                    feature = torch.FloatTensor(train_losses).view(1, -1)
+                    feature = feature/feature.sum()
+                grad_scale = torch.FloatTensor(sim_list).view(1, -1)
+    
+                if self.cuda:
+                    feature = feature.cuda()
+                    grad_scale = grad_scale.cuda()
+                for _ in range(self.args.data_actor_optim_step):
+                    a_logits = data_actor.forward(feature)
+                    loss = -torch.nn.functional.log_softmax(a_logits, dim=-1)
+                    if self.args.scale_reward:
+                        loss = loss * torch.softmax(a_logits, dim=-1).data
+                    loss = (loss * grad_scale).sum()
+                    loss.backward()
+                    data_optimizer.step()
+                    data_optimizer.zero_grad()
+                with torch.no_grad():
+                    a_logits = data_actor.forward(feature)
+                    prob = torch.nn.functional.softmax(a_logits, dim=-1)
+                    sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
+                    self.cur_data_actor_probs[optim_id] = sim_list
+        self.cur_data_actor_probs = np.array(self.cur_data_actor_probs)
+        sim_list = self.cur_data_actor_probs.sum(axis=0)
+        sim_list = sim_list/np.sum(sim_list)
         self.task.dataset('train').update_sampling_distribution(sim_list)
-
 
     def update_language_sampler(self, args):
         """Update the distribution to sample languages """
@@ -778,31 +627,6 @@ class Trainer(object):
         self.criterion.train()
         self.zero_grad()
 
-        #if not args.no_dev:
-        #dev_itr = self.task.get_batch_iterator(
-        #    dataset=self.task.dataset('valid'),
-        #    max_tokens=args.max_tokens_valid,
-        #    max_sentences=args.max_sentences_valid,
-        #    max_positions=utils.resolve_max_positions(
-        #        self.task.max_positions(),
-        #        self.get_model().max_positions(),
-        #    ),
-        #    ignore_invalid_inputs=args.skip_invalid_size_inputs_valid_test,
-        #    required_batch_size_multiple=args.required_batch_size_multiple,
-        #    seed=args.seed,
-        #    num_shards=args.distributed_world_size,
-        #    shard_id=args.distributed_rank,
-        #    num_workers=args.num_workers,
-        #).next_epoch_itr(shuffle=True)
-        #for sample in dev_itr:
-        #    sample = self._prepare_sample(sample)
-        #    assert sample is not None
-        #    loss, sample_size, logging_output = self.task.train_step(
-        #                            sample, self.model, self.criterion, self.optimizer)
-        #    self.optimizer.save_dev_grad()
-        #    #self.optimizer.zero_grad()
-        #    break
-        #self.zero_grad()
         sim_list, all_sim_list = [], []
         norm_list, all_norm_list = [], []
 
@@ -839,163 +663,191 @@ class Trainer(object):
                 all_sim_list.append(cur_sim_list)
                 all_norm_list.append(cur_norm_list)
         else:
-            self.optimizer.clone_param()
-            for i, key in enumerate(self.task.dataset('train').datasets.keys()):
-                #for _ in range(self.args.loss_steps):
-                sample = self.task.dataset('train').get_sample_with_key(key)
-                sample = self._prepare_sample(sample)
-                loss, sample_size, logging_output = self.task.train_step(
-                                        sample, self.model, self.criterion, self.optimizer)
-                self.optimizer.save_train_grad_t0()
-                self.zero_grad()
-                self.optimizer.add_grad(eta=0.001)
-                valid_samples = []
-                for j, valid_key in enumerate(self.task.dataset('valid').datasets.keys()):
-                    valid_sample = self.task.dataset('valid').get_sample_with_key(valid_key)
-                    valid_sample = self._prepare_sample(valid_sample)
-                    # calculate sim
-                    loss, sample_size, logging_output = self.task.train_step(
-                                            valid_sample, self.model, self.criterion, self.optimizer)
-                    valid_samples.append(valid_sample)
-                sim, cur_cosine_norm, prev_cosine_norm = self.optimizer.get_grad_sim()
-                sim_list.append(sim)
-                norm_list.append(cur_cosine_norm)
-                self.zero_grad()
-                # record new dds for logging
-                cur_sim_list, cur_norm_list = [], []
-                for i, valid_sample in enumerate(valid_samples):
-                    loss, sample_size, logging_output = self.task.train_step(
-                                            valid_sample, self.model, self.criterion, self.optimizer)
-                    sim, cur_cosine_norm, prev_cosine_norm = self.optimizer.get_grad_sim()
-                    cur_sim_list.append(sim)
-                    cur_norm_list.append(cur_cosine_norm)
-                    self.zero_grad()
-                all_sim_list.append(cur_sim_list)
-                all_norm_list.append(cur_norm_list)
-
-                self.optimizer.switch_param()
-            self.optimizer.switch_param(clear_cache=True)
-        # logging
-        # first log regular dds
-        print("regular dds reward:")
-        print(" ".join([str(s) for s in sim_list]))
-        print("regular dds norm:")
-        print(" ".join([str(s.item()) for s in norm_list]))
-        # second log new dds
-        all_sim_list = np.transpose(np.array(all_sim_list))
-        all_norm_list = np.transpose(np.array(all_norm_list))
-        print("new dds reward list:")
-        for l in all_sim_list:
-            print(" ".join([str(s) for s in l]))
-        print("new dds norm:")
-        for l in all_norm_list:
-            print(" ".join([str(s.item()) for s in l]))
-        print("new dds reward list:")
-        print(" ".join([str(s) for s in np.mean(all_sim_list, axis=0)]))
-
-        if args.pretrain_data_actor and not self.pretrained:
-            if self.args.feature_type == 'ones':
-                feature = torch.ones(1, len(self.task.dataset('train').datasets.keys()))
-            elif self.args.feature_type == 'valid_loss':
-                feature = torch.FloatTensor(valid_losses).view(1, -1)
-                feature = feature/feature.sum()
-            elif self.args.feature_type == 'train_loss':
-                feature = torch.FloatTensor(train_losses).view(1, -1)
-                feature = feature/feature.sum()
+            if self.args.layerwise_dds:
+                optimizers = self.optimizer
+                data_actors = self.data_actor
+                data_optimizers = self.data_optimizer
             else:
-                print("feature not supported")
-                exit(1)
-            self.pretrained = True
-            self.pretrain_data_actor(feature)
-        if self.args.data_actor == 'base':
-            feature = torch.ones(1, len(self.task.dataset('train').datasets.keys()))
-        elif self.args.data_actor == 'lan':
-            feature = torch.LongTensor([i for i in range(len(self.task.dataset('train').datasets.keys()))]).view(1, -1)
-            print('feature')
-            print(feature)
-        grad_scale = torch.FloatTensor(sim_list).view(1, -1)
+                optimizers = [self.optimizer]
+                data_actors = [self.data_actor]
+                data_optimizers = [self.data_optimizer]
+            if len(self.cur_data_actor_probs) == 0:
+                self.cur_data_actor_probs = [[] for _ in range(len(data_optimizers))]
+            for optim_id, optimizer in enumerate(optimizers):
+                sim_list, all_sim_list = [], []
+                norm_list, all_norm_list = [], []
 
-        if self.cuda:
-            feature = feature.cuda()
-            grad_scale = grad_scale.cuda()
-        for _ in range(self.args.data_actor_optim_step):
-            a_logits = self.data_actor.forward(feature)
-            loss = -torch.nn.functional.log_softmax(a_logits, dim=-1)
-            loss = (loss * grad_scale).sum()
-            loss.backward()
-            self.data_optimizer.step()
-            self.data_optimizer.zero_grad()
-        with torch.no_grad():
-            a_logits = self.data_actor.forward(feature)
-            prob = torch.nn.functional.softmax(a_logits, dim=-1)
-            sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
+                data_actor, data_optimizer = data_actors[optim_id], data_optimizers[optim_id]
+                optimizer.clone_param()
+                for i, key in enumerate(self.task.dataset('train').datasets.keys()):
+                    #for _ in range(self.args.loss_steps):
+                    sample = self.task.dataset('train').get_sample_with_key(key)
+                    sample = self._prepare_sample(sample)
+                    loss, sample_size, logging_output = self.task.train_step(
+                                            sample, self.model, self.criterion, optimizer)
+                    optimizer.save_train_grad_t0()
+                    self.zero_grad()
+                    optimizer.add_grad(eta=0.001)
+                    valid_samples = []
+                    for j, valid_key in enumerate(self.task.dataset('valid').datasets.keys()):
+                        valid_sample = self.task.dataset('valid').get_sample_with_key(valid_key)
+                        valid_sample = self._prepare_sample(valid_sample)
+                        # calculate sim
+                        loss, sample_size, logging_output = self.task.train_step(
+                                                valid_sample, self.model, self.criterion, optimizer)
+                        valid_samples.append(valid_sample)
+                    sim, cur_cosine_norm, prev_cosine_norm = optimizer.get_grad_sim()
+                    sim_list.append(sim)
+                    norm_list.append(cur_cosine_norm)
+                    self.zero_grad()
+                    # record new dds for logging
+                    cur_sim_list, cur_norm_list = [], []
+                    for i, valid_sample in enumerate(valid_samples):
+                        loss, sample_size, logging_output = self.task.train_step(
+                                                valid_sample, self.model, self.criterion, optimizer)
+                        sim, cur_cosine_norm, prev_cosine_norm = optimizer.get_grad_sim()
+                        cur_sim_list.append(sim)
+                        cur_norm_list.append(cur_cosine_norm)
+                        self.zero_grad()
+                    all_sim_list.append(cur_sim_list)
+                    all_norm_list.append(cur_norm_list)
+    
+                    optimizer.switch_param()
+                optimizer.switch_param(clear_cache=True)
+                # logging
+                # first log regular dds
+                print("regular dds reward:")
+                print(" ".join([str(s) for s in sim_list]))
+                print("regular dds norm:")
+                print(" ".join([str(s.item()) for s in norm_list]))
+                # second log new dds
+                all_sim_list = np.transpose(np.array(all_sim_list))
+                all_norm_list = np.transpose(np.array(all_norm_list))
+                print("new dds reward list:")
+                for l in all_sim_list:
+                    print(" ".join([str(s) for s in l]))
+                print("new dds norm:")
+                for l in all_norm_list:
+                    print(" ".join([str(s.item()) for s in l]))
+                print("new dds reward list:")
+                print(" ".join([str(s) for s in np.mean(all_sim_list, axis=0)]))
+        
+                if args.pretrain_data_actor and not self.pretrained:
+                    if self.args.feature_type == 'ones':
+                        feature = torch.ones(1, len(self.task.dataset('train').datasets.keys()))
+                    elif self.args.feature_type == 'valid_loss':
+                        feature = torch.FloatTensor(valid_losses).view(1, -1)
+                        feature = feature/feature.sum()
+                    elif self.args.feature_type == 'train_loss':
+                        feature = torch.FloatTensor(train_losses).view(1, -1)
+                        feature = feature/feature.sum()
+                    else:
+                        print("feature not supported")
+                        exit(1)
+                    self.pretrained = True
+                    self.pretrain_data_actor(feature)
+                if self.args.data_actor == 'base':
+                    feature = torch.ones(1, len(self.task.dataset('train').datasets.keys()))
+                elif self.args.data_actor == 'lan':
+                    feature = torch.LongTensor([i for i in range(len(self.task.dataset('train').datasets.keys()))]).view(1, -1)
+                    print('feature')
+                    print(feature)
+                grad_scale = torch.FloatTensor(sim_list).view(1, -1)
+        
+                if self.cuda:
+                    feature = feature.cuda()
+                    grad_scale = grad_scale.cuda()
+                for _ in range(self.args.data_actor_optim_step):
+                    a_logits = data_actor.forward(feature)
+                    loss = -torch.nn.functional.log_softmax(a_logits, dim=-1)
+                    loss = (loss * grad_scale).sum()
+                    loss.backward()
+                    data_optimizer.step()
+                    data_optimizer.zero_grad()
+                with torch.no_grad():
+                    a_logits = data_actor.forward(feature)
+                    prob = torch.nn.functional.softmax(a_logits, dim=-1)
+                    sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
+
+                    self.cur_data_actor_probs[optim_id] = sim_list
+        self.cur_data_actor_probs = np.array(self.cur_data_actor_probs)
+        sim_list = self.cur_data_actor_probs.sum(axis=0)
+        sim_list = sim_list/np.sum(sim_list)
         # set sampling distribution
         self.task.dataset('train').update_sampling_distribution(sim_list)
     
     def pretrain_data_actor(self, feature=None):
         """pretrain the distribution to sample languages """
-        if self.args.data_actor == 'base' or self.args.data_actor == 'base_weight':
-            if self.args.pretrain_type == "lan_dist":
-                target = torch.FloatTensor(self.args.lan_dists).view(1, -1)
-            elif self.args.pretrain_type == "datasize":
-                datasize_p = self.task.dataset('train').p
-                target = torch.FloatTensor(datasize_p).view(1, -1)
-            print(target)
-            for p in self.data_optimizer.param_groups:
-                p['lr'] = 0.001
-            
-            if self.cuda:
-                feature = feature.cuda()
-                target = target.cuda()
-            l = 100
-            while l > 0.000001:
-                a_logits = self.data_actor.forward(feature)
-                prob = torch.nn.functional.softmax(a_logits, dim=-1)
-                loss = torch.nn.functional.mse_loss(prob, target)
-                l = loss.item()
-                loss.backward()
-                self.data_optimizer.step()
-                self.data_optimizer.zero_grad()
-            with torch.no_grad():
-                a_logits = self.data_actor.forward(feature)
-                prob = torch.nn.functional.softmax(a_logits, dim=-1)
-                sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
-                print("pretrained_sim", sim_list)
-
-            for p in self.data_optimizer.param_groups:
-                p['lr'] = self.args.data_actor_lr
-        elif self.args.data_actor == 'lan':
-            if self.args.pretrain_type == "lan_dist":
-                target = torch.FloatTensor(args.lan_dists).view(-1, 1)
-            elif self.args.pretrain_type == "datasize":
-                datasize_p = self.task.dataset('train').p
-                target = torch.FloatTensor(datasize_p).view(-1, 1)
-            print(target)
-            feature = torch.LongTensor([i for i in range(len(datasize_p))]).view(-1, 1)
-            for p in self.data_optimizer.param_groups:
-                p['lr'] = 0.001
-            if self.cuda:
-                feature = feature.cuda()
-                target = target.cuda()
-            l = 100
-            step = 0
-            while l > 0.000001 and step < 100000:
-                a_logits = self.data_actor.forward(feature)
-                prob = torch.nn.functional.softmax(a_logits, dim=0)
-                loss = torch.nn.functional.mse_loss(prob, target)
-                l = loss.item()
-                loss.backward()
-                self.data_optimizer.step()
-                self.data_optimizer.zero_grad()
-                step += 1
-            with torch.no_grad():
-                a_logits = self.data_actor.forward(feature)
-                prob = torch.nn.functional.softmax(a_logits, dim=0)
-                sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
-                print("pretrained_sim", sim_list)
-
-            for p in self.data_optimizer.param_groups:
-                p['lr'] = self.args.data_actor_lr
+        if self.args.layerwise_dds:
+            data_optimizers = self.data_optimizer
+            data_actors = self.data_actor
+        else:
+            data_optimizers = [self.data_optimizer]
+            data_actors = [self.data_actor]
+        for actor_id, data_actor in enumerate(data_actors):
+            data_optimizer = data_optimizers[actor_id]
+            if self.args.data_actor == 'base' or self.args.data_actor == 'base_weight':
+                if self.args.pretrain_type == "lan_dist":
+                    target = torch.FloatTensor(args.lan_dists).view(1, -1)
+                elif self.args.pretrain_type == "datasize":
+                    datasize_p = self.task.dataset('train').p
+                    target = torch.FloatTensor(datasize_p).view(1, -1)
+                print(target)
+                for p in data_optimizer.param_groups:
+                    p['lr'] = 0.001
+                
+                if self.cuda:
+                    feature = feature.cuda()
+                    target = target.cuda()
+                l = 100
+                while l > 0.000001:
+                    a_logits = data_actor.forward(feature)
+                    prob = torch.nn.functional.softmax(a_logits, dim=-1)
+                    loss = torch.nn.functional.mse_loss(prob, target)
+                    l = loss.item()
+                    loss.backward()
+                    data_optimizer.step()
+                    data_optimizer.zero_grad()
+                with torch.no_grad():
+                    a_logits = data_actor.forward(feature)
+                    prob = torch.nn.functional.softmax(a_logits, dim=-1)
+                    sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
+                    print("pretrained_sim", sim_list)
+    
+                for p in data_optimizer.param_groups:
+                    p['lr'] = self.args.data_actor_lr
+            elif self.args.data_actor == 'lan':
+                if self.args.pretrain_type == "lan_dist":
+                    target = torch.FloatTensor(args.lan_dists).view(-1, 1)
+                elif self.args.pretrain_type == "datasize":
+                    datasize_p = self.task.dataset('train').p
+                    target = torch.FloatTensor(datasize_p).view(-1, 1)
+                print(target)
+                feature = torch.LongTensor([i for i in range(len(datasize_p))]).view(-1, 1)
+                for p in data_optimizer.param_groups:
+                    p['lr'] = 0.001
+                if self.cuda:
+                    feature = feature.cuda()
+                    target = target.cuda()
+                l = 100
+                step = 0
+                while l > 0.000001 and step < 100000:
+                    a_logits = data_actor.forward(feature)
+                    prob = torch.nn.functional.softmax(a_logits, dim=0)
+                    loss = torch.nn.functional.mse_loss(prob, target)
+                    l = loss.item()
+                    loss.backward()
+                    data_optimizer.step()
+                    data_optimizer.zero_grad()
+                    step += 1
+                with torch.no_grad():
+                    a_logits = data_actor.forward(feature)
+                    prob = torch.nn.functional.softmax(a_logits, dim=0)
+                    sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
+                    print("pretrained_sim", sim_list)
+    
+                for p in self.data_optimizer.param_groups:
+                    p['lr'] = self.args.data_actor_lr
 
     def get_train_iterator(self, epoch, combine=True):
         """Return an EpochBatchIterator over the training set for a given epoch."""
@@ -1188,16 +1040,35 @@ class Trainer(object):
             ).format(self.task.__class__.__name__))
 
         try:
+            if self.args.layerwise_dds:
+                if len(self.cur_data_actor_probs) == 0:
+                    optim_weights = [1 for _ in range(len(self.optimizer))]
+                else:
+                    train_lan_id = self.task.langpair2id[list(sample.keys())[0]]
+                    optim_weights = self.cur_data_actor_probs[:, train_lan_id]
+                    optim_weights = np.array(optim_weights) / optim_weights.sum() * self.cur_data_actor_probs.shape[0]
             # normalize grads by sample size
             if sample_size > 0:
-                self.optimizer.multiply_grads(self.args.distributed_world_size / float(sample_size))
+                if self.args.layerwise_dds:
+                    for optim_id, optim_weight in enumerate(optim_weights):
+                        self.optimizer[optim_id].multiply_grads(optim_weight * self.args.distributed_world_size / float(sample_size))
+                else:
+                    self.optimizer.multiply_grads(self.args.distributed_world_size / float(sample_size))
 
             # clip grads
-            grad_norm = self.optimizer.clip_grad_norm(self.args.clip_norm)
+            if self.args.layerwise_dds:
+                for optimizer in self.optimizer:
+                    grad_norm = optimizer.clip_grad_norm(self.args.clip_norm)
+            else:
+                grad_norm = self.optimizer.clip_grad_norm(self.args.clip_norm)
             self._prev_grad_norm = grad_norm
 
             # take an optimization step
-            self.optimizer.step()
+            if self.args.layerwise_dds:
+                for optimizer in self.optimizer:
+                    optimizer.step()
+            else:
+                self.optimizer.step()
             self.set_num_updates(self.get_num_updates() + 1)
 
             # task specific update per step
@@ -1231,60 +1102,6 @@ class Trainer(object):
             self.meters['loss_scale'].update(self.optimizer.scaler.loss_scale)
 
         self.meters['train_wall'].stop()
-
-        if (self.args.data_actor == 'lan') and update_actor:
-            # update data actor using the original DDS discount gradient
-            # get dev gradient
-            train_lan_id = self.task.langpair2id[list(samples[-1].keys())[0]]
-            print("train language id")
-            print(train_lan_id, list(samples[-1].keys())[0])
-            sim_list = []
-            if self.args.data_actor_multilin:
-                for i, valid_key in enumerate(self.task.dataset('valid').datasets.keys()):
-                    valid_sample = self.task.dataset('valid').get_sample_with_key(valid_key)
-                    valid_sample = self._prepare_sample(valid_sample)
-                    _loss, _sample_size, _logging_output = self.task.train_step(
-                                            valid_sample, self.model, self.criterion, self.optimizer)
-                    sim = self.optimizer.get_grad_sim()
-                    sim_list.append(sim)
-                    self.zero_grad()
-                    if self.cuda:
-                        torch.cuda.empty_cache()
-                sim_list = np.array(sim_list)
-                if self.args.utility_type == 'ave':
-                    reward = sim_list
-                elif self.args.utility_type == 'ave_minus_baseline':
-                    if self.baseline is None:
-                        self.baseline = sim_list
-                        reward = sim_list
-                    else:
-                        cur_reward = sim_list
-                        reward = sim_list - self.baseline
-                        self.baseline = 0.2*self.baseline + 0.8*cur_reward
-                    print('baseline')
-                    print(self.baseline)
-            else:
-                pass
-            print("reward")
-            print(reward)
-            feature = torch.LongTensor([i for i in range(len(self.task.dataset('train').datasets.keys()))]).view(1, -1)
-            print('feature')
-            print(feature)
-            reward = np.mean(reward)
-
-            if self.cuda:
-                feature = feature.cuda()
-            a_logits = self.data_actor.forward(feature)
-            loss = -torch.nn.functional.log_softmax(a_logits, dim=-1).view(-1)
-            loss = loss[train_lan_id] * reward
-            loss.backward()
-            self.data_optimizer.step()
-            self.data_optimizer.zero_grad()
-            with torch.no_grad():
-                a_logits = self.data_actor.forward(feature)
-                prob = torch.nn.functional.softmax(a_logits, dim=-1)
-                sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
-            self.task.dataset('train').update_sampling_distribution(sim_list)
         if self.args.data_actor_step_update and update_actor:
             # update data actor
             # get dev gradient
@@ -1310,7 +1127,7 @@ class Trainer(object):
                 self.optimizer.switch_param(clear_cache=True)
             # optimize data actor
             for k in cached_loss.keys():
-                reward = 1./eta * (cur_loss[k] - cached_loss[k])
+                reward = 1./eta * (cur_loss[k] - cached_loss[k]) * self.optimizer.get_lr()
                 if self.args.out_score_type == 'sigmoid':
                     #loss = -(torch.log(1e-20 + data_actor_out[k]) * reward.data)
                     loss = -(data_actor_out[k] * reward.data)
@@ -1405,20 +1222,35 @@ class Trainer(object):
             self.train_step([self._oom_batch], True)
 
     def zero_grad(self):
-        self.optimizer.zero_grad()
+        if self.args.layerwise_dds:
+            for optimizer in self.optimizer:
+                optimizer.zero_grad()
+        else:
+            self.optimizer.zero_grad()
 
     def lr_step(self, epoch, val_loss=None):
         """Adjust the learning rate based on the validation loss."""
-        self.lr_scheduler.step(epoch, val_loss)
+        if self.args.layerwise_dds:
+            for lr_scheduler in self.lr_scheduler:
+                lr_scheduler.step(epoch, val_loss)
+        else:
+            self.lr_scheduler.step(epoch, val_loss)
         # prefer updating the LR based on the number of steps
         return self.lr_step_update()
 
     def lr_step_update(self):
         """Update the learning rate after each update."""
-        return self.lr_scheduler.step_update(self.get_num_updates())
+        if self.args.layerwise_dds:
+            for lr_scheduler in self.lr_scheduler:
+                ret = lr_scheduler.step_update(self.get_num_updates())
+            return ret
+        else:
+            return self.lr_scheduler.step_update(self.get_num_updates())
 
     def get_lr(self):
         """Get the current learning rate."""
+        if self.args.layerwise_dds:
+            return self.optimizer[0].get_lr()
         return self.optimizer.get_lr()
 
     def get_model(self):

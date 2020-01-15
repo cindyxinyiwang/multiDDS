@@ -377,7 +377,12 @@ class MultilingualTranslationTask(FairseqTask):
             if ignore_grad:
                 loss *= 0
             else:
-                optimizer.backward(loss)
+                if type(optimizer) == list:
+                    for optim in optimizer[:-1]:
+                        optim.backward(loss, retain_graph=True)
+                    optimizer[-1].backward(loss)
+                else:
+                    optimizer.backward(loss)
             agg_loss += loss.detach().item()
             # TODO make summing of the sample sizes configurable
             agg_sample_size += sample_size
