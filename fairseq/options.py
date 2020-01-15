@@ -256,6 +256,8 @@ def get_parser(desc, default_task='translation'):
                         help='the epoch to update val loss to trainer')
     parser.add_argument('--embedding-file', type=str, default=None,
                         help='the file path to init data actor embedding')
+    parser.add_argument('--data-actor-feature-postprocess', type=str, default='last',
+                        help='[last|average]')
 
 
     # TCS options

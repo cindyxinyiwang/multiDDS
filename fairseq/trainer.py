@@ -255,21 +255,28 @@ class Trainer(object):
             return _optimizer
 
         model = list(self.model.models.values())[0]
-        comopents = [model.encoder, model.decoder]
+        #comopents = [model.encoder, model.decoder]
+        comopents = [[model.encoder.embed_tokens, model.encoder.embed_positions], 
+            [model.encoder.layers, model.encoder.layer_norm], 
+            [model.decoder.embed_tokens, model.decoder.embed_positions], 
+            [model.decoder.layers, model.decoder.layer_norm]]
         self._optimizer, self._lr_scheduler = [], []
 
+        total_param = 0
         for i, comopent in enumerate(comopents):
             params = list(
                 filter(
                     lambda p: p.requires_grad,
-                    chain(comopent.parameters(), self.criterion.parameters()),
+                    chain(comopent[0].parameters(), comopent[1].parameters(), self.criterion.parameters()),
                 )
             )
+            total_param += np.array([p.numel() for p in params]).sum()
             self._optimizer.append(build(params))
             # We should initialize the learning rate scheduler immediately after
             # building the optimizer, so that the initial learning rate is set.
             self._lr_scheduler.append(lr_scheduler.build_lr_scheduler(self.args, self._optimizer[-1]))
             self._lr_scheduler[-1].step_update(0)
+        print("total num of params={}".format(total_param))
 
     def save_checkpoint(self, filename, extra_state):
         """Save all training state in a checkpoint file."""
@@ -1127,7 +1134,7 @@ class Trainer(object):
                 self.optimizer.switch_param(clear_cache=True)
             # optimize data actor
             for k in cached_loss.keys():
-                reward = 1./eta * (cur_loss[k] - cached_loss[k])
+                reward = 1./eta * (cur_loss[k] - cached_loss[k]) * self.optimizer.get_lr()
                 if self.args.out_score_type == 'sigmoid':
                     #loss = -(torch.log(1e-20 + data_actor_out[k]) * reward.data)
                     loss = -(data_actor_out[k] * reward.data)
