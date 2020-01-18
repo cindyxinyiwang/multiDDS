@@ -1124,7 +1124,7 @@ class Trainer(object):
             # get per example reward
             with torch.no_grad():
                 self.optimizer.switch_param()
-                eta = 0.001
+                eta = 0.00001
                 self.optimizer.add_grad(eta=eta)
                 cur_loss = {}
                 _loss, _sample_size, _logging_output = self.task.train_step(
@@ -1135,13 +1135,13 @@ class Trainer(object):
             # optimize data actor
             for k in cached_loss.keys():
                 reward = 1./eta * (cur_loss[k] - cached_loss[k]) * self.optimizer.get_lr()
-                if self.args.out_score_type == 'sigmoid':
-                    #loss = -(torch.log(1e-20 + data_actor_out[k]) * reward.data)
-                    loss = -(data_actor_out[k] * reward.data)
-                elif self.args.out_score_type == 'exp':
-                    loss = -(torch.log(1e-20 + data_actor_out[k]) * reward.data)
-                if cur_loss[k].size(0) > 0:
-                    loss.div_(cur_loss[k].size(0))
+                loss = -(data_actor_out[k] * reward.data)
+                #if self.args.out_score_type == 'sigmoid':
+                #    loss = -(data_actor_out[k] * reward.data)
+                #elif self.args.out_score_type == 'exp':
+                #    loss = -(torch.log(1e-20 + data_actor_out[k]) * reward.data)
+                #if cur_loss[k].size(0) > 0:
+                #    loss.div_(cur_loss[k].size(0))
                 loss.sum().backward()
             if self.args.data_actor == 'ave_emb': 
                 self.data_optimizer.step()

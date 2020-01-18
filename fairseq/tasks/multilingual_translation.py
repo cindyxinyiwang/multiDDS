@@ -341,6 +341,7 @@ class MultilingualTranslationTask(FairseqTask):
     def train_step(self, sample, model, criterion, optimizer, ignore_grad=False, data_actor=None, loss_copy=None, data_actor_out=None):
         model.train()
         agg_loss, agg_sample_size, agg_logging_output = 0., 0., {}
+        normed_data_score = {}
         if (self.args.data_actor_step_update) and data_actor is not None:
             data_score, sum_score, example_size = {}, 0, 0
             for lang_pair in self.model_lang_pairs:
@@ -358,7 +359,7 @@ class MultilingualTranslationTask(FairseqTask):
                     continue
                 #if self.args.out_score_type == 'exp':
                 #    data_actor_out[lang_pair] = data_actor_out[lang_pair]/sum_score
-                data_score[lang_pair] = data_score[lang_pair]*example_size/sum_score
+                normed_data_score[lang_pair] = data_score[lang_pair]*example_size/sum_score
                 #print(data_score[lang_pair])
         else:
             data_score = None
@@ -368,7 +369,7 @@ class MultilingualTranslationTask(FairseqTask):
                 continue
             # If we filer data, do not scale by score
             if data_score is not None and  self.args.select_by_dds_epoch < 0:
-                score = data_score[lang_pair]
+                score = normed_data_score[lang_pair]
             else:
                 score = None
             loss, sample_size, logging_output, nll_loss_data = criterion(model.models[lang_pair], sample[lang_pair], data_score=score, loss_copy=(loss_copy is not None))
