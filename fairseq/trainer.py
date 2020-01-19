@@ -1135,13 +1135,16 @@ class Trainer(object):
             # optimize data actor
             for k in cached_loss.keys():
                 reward = 1./eta * (cur_loss[k] - cached_loss[k]) * self.optimizer.get_lr()
-                loss = -(data_actor_out[k] * reward.data)
+                if self.args.out_score_type == 'tanh':
+                    loss = torch.nn.functional.log_softmax(data_actor_out[k], dim=0) * reward.data 
+                else:
+                    loss = -(data_actor_out[k] * reward.data)
                 #if self.args.out_score_type == 'sigmoid':
                 #    loss = -(data_actor_out[k] * reward.data)
                 #elif self.args.out_score_type == 'exp':
                 #    loss = -(torch.log(1e-20 + data_actor_out[k]) * reward.data)
-                #if cur_loss[k].size(0) > 0:
-                #    loss.div_(cur_loss[k].size(0))
+                if cur_loss[k].size(0) > 0:
+                    loss.div_(cur_loss[k].size(0))
                 loss.sum().backward()
             if self.args.data_actor == 'ave_emb': 
                 self.data_optimizer.step()

@@ -112,6 +112,8 @@ class AveEmbActor(torch.nn.Module):
             score = torch.sigmoid(self.project_out(inp))
         elif self.out_score_type == 'exp':
             score = torch.exp(torch.tanh(self.project_out(inp)))
+        elif self.out_score_type == 'tanh':
+            score = torch.tanh(self.project_out(inp)) * self.args.tanh_constant
         return score 
 
 def FixedEmbedding(embedding_file):
