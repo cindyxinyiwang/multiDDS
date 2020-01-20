@@ -74,6 +74,11 @@ class MultilingualTranslationTask(FairseqTask):
                             help='source language (only needed for inference)')
         parser.add_argument('-t', '--target-lang', default=None, metavar='TARGET',
                             help='target language (only needed for inference)')
+        parser.add_argument('--encoder-lang-group', default=None, type=str,
+                            help='source language group')
+        parser.add_argument('--decoder-lang-group', default=None, type=str,
+                            help='source language group')
+
         parser.add_argument('--lazy-load', action='store_true',
                             help='load the dataset lazily')
         parser.add_argument('--raw-text', default=False, action='store_true',
@@ -109,6 +114,13 @@ class MultilingualTranslationTask(FairseqTask):
             args.source_lang, args.target_lang = args.lang_pairs[0].split('-')
         else:
             self.lang_pairs = ['{}-{}'.format(args.source_lang, args.target_lang)]
+        if args.encoder_lang_group:
+            encoder_lang_group = args.encoder_lang_group.split(",")
+            args.encoder_lang_group = [lg.split('-') for lg in encoder_lang_group]
+        if args.decoder_lang_group:
+            decoder_lang_group = args.decoder_lang_group.split(",")
+            args.decoder_lang_group = [lg.split('-') for lg in decoder_lang_group]
+
         if args.lan_dists is not None:
             args.lan_dists = np.array([np.exp(float(t)/1000) for t in args.lan_dists.split(',')])
             args.lan_dists = args.lan_dists/np.sum(args.lan_dists)
