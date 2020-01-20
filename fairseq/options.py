@@ -228,6 +228,8 @@ def get_parser(desc, default_task='translation'):
                         help='[0|1] whether to optimize model embedding')
     parser.add_argument('--out-score-type', type=str, default='sigmoid',
                         help='[sigmoid|exp]')
+    parser.add_argument('--tanh-constant', type=int, default=10,
+                        help='the constant multiplier for tanh output')
     parser.add_argument('--eval-bleu', action='store_true',
                         help='whether to valid on bleu score')
     parser.add_argument('--only-load-data-actor', action='store_true',
