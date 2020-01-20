@@ -261,6 +261,7 @@ class Trainer(object):
             [model.decoder.embed_tokens, model.decoder.embed_positions], 
             [model.decoder.layers, model.decoder.layer_norm]]
         self._optimizer, self._lr_scheduler = [], []
+        self.component_size = []
 
         total_param = 0
         for i, comopent in enumerate(comopents):
@@ -270,12 +271,17 @@ class Trainer(object):
                     chain(comopent[0].parameters(), comopent[1].parameters(), self.criterion.parameters()),
                 )
             )
-            total_param += np.array([p.numel() for p in params]).sum()
+            param_count = np.array([p.numel() for p in params]).sum()
+            total_param += param_count
+            self.component_size.append(param_count)
+            print("component {0}={1}".format(i, param_count))
             self._optimizer.append(build(params))
             # We should initialize the learning rate scheduler immediately after
             # building the optimizer, so that the initial learning rate is set.
             self._lr_scheduler.append(lr_scheduler.build_lr_scheduler(self.args, self._optimizer[-1]))
             self._lr_scheduler[-1].step_update(0)
+        self.component_size = np.array(self.component_size)
+        self.component_weight = self.component_size / np.sum(self.component_size) 
         print("total num of params={}".format(total_param))
 
     def save_checkpoint(self, filename, extra_state):
@@ -620,10 +626,14 @@ class Trainer(object):
                     prob = torch.nn.functional.softmax(a_logits, dim=-1)
                     sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
                     self.cur_data_actor_probs[optim_id] = sim_list
-        self.cur_data_actor_probs = np.array(self.cur_data_actor_probs)
-        sim_list = self.cur_data_actor_probs.sum(axis=0)
-        sim_list = sim_list/np.sum(sim_list)
-        self.task.dataset('train').update_sampling_distribution(sim_list)
+        if self.args.combine_probs == "weight_by_size":
+            pass
+
+        else:
+            self.cur_data_actor_probs = np.array(self.cur_data_actor_probs)
+            sim_list = self.cur_data_actor_probs.sum(axis=0)
+            sim_list = sim_list/np.sum(sim_list)
+            self.task.dataset('train').update_sampling_distribution(sim_list)
 
     def update_language_sampler(self, args):
         """Update the distribution to sample languages """
@@ -777,9 +787,15 @@ class Trainer(object):
                     sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
 
                     self.cur_data_actor_probs[optim_id] = sim_list
-        self.cur_data_actor_probs = np.array(self.cur_data_actor_probs)
-        sim_list = self.cur_data_actor_probs.sum(axis=0)
-        sim_list = sim_list/np.sum(sim_list)
+        print(self.cur_data_actor_probs)
+        if self.args.combine_probs == "weight_by_size":
+            self.cur_data_actor_probs = np.array(self.cur_data_actor_probs)
+            sim_list = self.cur_data_actor_probs * np.expand_dims(self.component_weight, axis=1)
+            sim_list = sim_list.sum(axis=0) / np.sum(sim_list)
+        else:
+            self.cur_data_actor_probs = np.array(self.cur_data_actor_probs)
+            sim_list = self.cur_data_actor_probs.sum(axis=0)
+            sim_list = sim_list/np.sum(sim_list)
         # set sampling distribution
         self.task.dataset('train').update_sampling_distribution(sim_list)
     

@@ -1,5 +1,6 @@
 
-MDIR=/projects/tir1/users/xinyiw1/usr/local/mosesdecoder
+#MDIR=/projects/tir1/users/xinyiw1/usr/local/mosesdecoder
+MDIR=/home/xinyiw/mosesdecoder
 
 python util_scripts/post_trans_fairseq.py $1
 
