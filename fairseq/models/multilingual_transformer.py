@@ -151,15 +151,33 @@ class MultilingualTransformerModel(FairseqMultiModel):
 
         # shared encoders/decoders (if applicable)
         shared_encoder, shared_decoder = None, None
-        if args.share_encoders:
+        if args.encoder_lang_group:
+            shared_encoder_group = {}
+            for lang_group in args.encoder_lang_group:
+                shared_encoder_group[lang_group[0]] = get_encoder(lang_group[0])
+                for l in lang_group[1:]:
+                    shared_encoder_group[l] = shared_encoder_group[lang_group[0]]
+        elif args.share_encoders:
             shared_encoder = get_encoder(src_langs[0])
-        if args.share_decoders:
-            shared_decoder = get_decoder(tgt_langs[0])
+        if args.decoder_lang_group:
+            shared_decoder_group = {}
+            for lang_group in args.decoder_lang_group:
+                shared_decoder_group[lang_group[0]] = get_decoder(lang_group[0])
+                for l in lang_group[1:]:
+                    shared_decoder_group[l] = shared_decoder_group[lang_group[0]]    
+        elif args.share_decoders:
+            shared_decoder = get_decoder(tgt_langs[0])            
 
         encoders, decoders = OrderedDict(), OrderedDict()
         for lang_pair, src, tgt in zip(task.model_lang_pairs, src_langs, tgt_langs):
-            encoders[lang_pair] = shared_encoder if shared_encoder is not None else get_encoder(src)
-            decoders[lang_pair] = shared_decoder if shared_decoder is not None else get_decoder(tgt)
+            if args.encoder_lang_group:
+                encoders[lang_pair] = shared_encoder_group[src]
+            else:
+                encoders[lang_pair] = shared_encoder if shared_encoder is not None else get_encoder(src)
+            if args.decoder_lang_group:
+                decoders[lang_pair] = shared_decoder_group[tgt]
+            else:
+                decoders[lang_pair] = shared_decoder if shared_decoder is not None else get_decoder(tgt)
 
         ret = MultilingualTransformerModel(encoders, decoders, args)
         ret.embed_tokens = shared_encoder_embed_tokens
