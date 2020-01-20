@@ -69,6 +69,7 @@ class AveEmbActor(torch.nn.Module):
         src_dictionary = task.source_dictionary
         trg_dictionary = task.target_dictionary
         self.padding_idx = src_dictionary.pad()
+        self.args = args
         if emb is None:
             embed_dim = args.data_actor_embed_dim
             if src_dictionary == trg_dictionary:
@@ -86,6 +87,9 @@ class AveEmbActor(torch.nn.Module):
             embed_dim = emb.weight.size(1)
         self.project_out = torch.nn.Linear(2*embed_dim, 1)
         self.out_score_type = args.out_score_type
+
+        self.emb_dropout = torch.nn.Dropout(p=self.args.data_actor_embed_dropout)
+        self.proj_dropout = torch.nn.Dropout(p=self.args.data_actor_proj_dropout)
         
     def forward(self, sample):
         src_tokens, trg_tokens = sample['net_input']['src_tokens'], sample['target']
@@ -94,6 +98,8 @@ class AveEmbActor(torch.nn.Module):
         src_word_count = (~src_tokens.eq(self.padding_idx)).long().sum(dim=-1, keepdim=True)
         # embed tokens
         x = self.src_embed_tokens(src_tokens)
+        if self.args.data_actor_embed_dropout > 0:
+            x = self.emb_dropout(x)
         
         # B x T x C -> B x C
         x = x.sum(dim=1) / src_word_count.float()
@@ -101,6 +107,8 @@ class AveEmbActor(torch.nn.Module):
         trg_word_count = (~trg_tokens.eq(self.padding_idx)).long().sum(dim=-1, keepdim=True)
         # embed tokens
         y = self.trg_embed_tokens(trg_tokens)
+        if self.args.data_actor_embed_dropout > 0:
+            y = self.emb_dropout(y)
         
         # B x T x C -> B x C
         y = y.sum(dim=1) / trg_word_count.float()
@@ -108,12 +116,16 @@ class AveEmbActor(torch.nn.Module):
         inp = torch.cat([x, y], dim=-1)
         #inp = y
         # B x 1
+        proj = self.project_out(inp)
+        if self.args.data_actor_proj_dropout > 0:
+            proj = self.proj_dropout(proj)
+
         if self.out_score_type == 'sigmoid':
-            score = torch.sigmoid(self.project_out(inp))
+            score = torch.sigmoid(proj)
         elif self.out_score_type == 'exp':
-            score = torch.exp(torch.tanh(self.project_out(inp)))
+            score = torch.exp(torch.tanh(proj))
         elif self.out_score_type == 'tanh':
-            score = torch.tanh(self.project_out(inp)) * self.args.tanh_constant
+            score = torch.tanh(proj) * self.args.tanh_constant
         return score 
 
 def FixedEmbedding(embedding_file):

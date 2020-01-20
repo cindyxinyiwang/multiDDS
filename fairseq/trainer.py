@@ -1136,7 +1136,7 @@ class Trainer(object):
             for k in cached_loss.keys():
                 reward = 1./eta * (cur_loss[k] - cached_loss[k]) * self.optimizer.get_lr()
                 if self.args.out_score_type == 'tanh':
-                    loss = torch.nn.functional.log_softmax(data_actor_out[k], dim=0) * reward.data 
+                    loss = - torch.nn.functional.log_softmax(data_actor_out[k], dim=0) * reward.data 
                 else:
                     loss = -(data_actor_out[k] * reward.data)
                 #if self.args.out_score_type == 'sigmoid':

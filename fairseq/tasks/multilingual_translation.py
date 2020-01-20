@@ -360,9 +360,7 @@ class MultilingualTranslationTask(FairseqTask):
                 #if self.args.out_score_type == 'exp':
                 #    data_actor_out[lang_pair] = data_actor_out[lang_pair]/sum_score
                 if self.args.out_score_type == 'tanh':
-                    print(data_score)
                     normed_data_score[lang_pair] = torch.softmax(data_score[lang_pair], dim=0) * example_size
-                    print(normed_data_score)
                 else:
                     normed_data_score[lang_pair] = data_score[lang_pair]*example_size/sum_score
                 #print(data_score[lang_pair])
