@@ -1140,7 +1140,7 @@ class Trainer(object):
             # get per example reward
             with torch.no_grad():
                 self.optimizer.switch_param()
-                eta = 0.00001
+                eta = 0.0001
                 self.optimizer.add_grad(eta=eta)
                 cur_loss = {}
                 _loss, _sample_size, _logging_output = self.task.train_step(
@@ -1162,7 +1162,7 @@ class Trainer(object):
                 if cur_loss[k].size(0) > 0:
                     loss.div_(cur_loss[k].size(0))
                 loss.sum().backward()
-            if self.args.data_actor == 'ave_emb': 
+            if self.args.data_actor == 'ave_emb' or self.args.data_actor =='transformer': 
                 self.data_optimizer.step()
                 self.data_optimizer.zero_grad()
             elif self.args.extra_data_actor == 'ave_emb':

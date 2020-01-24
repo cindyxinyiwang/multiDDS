@@ -220,12 +220,17 @@ class TransformerActor(torch.nn.Module):
             print('Unsupported data actor postprocess feature!')
             exit(0)
         # B x 1
+ 
+        proj = self.project_out(inp)
+
         if self.out_score_type == 'sigmoid':
-            score = torch.sigmoid(self.project_out(inp))
-            #score = self.project_out(inp)
+            score = torch.sigmoid(proj)
         elif self.out_score_type == 'exp':
-            score = torch.exp(torch.tanh(self.project_out(inp)))
+            score = torch.exp(torch.tanh(proj))
+        elif self.out_score_type == 'tanh':
+            score = torch.tanh(proj) * self.args.tanh_constant
         return score 
+
 
 
 

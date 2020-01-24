@@ -56,7 +56,7 @@ class TransformEosLangPairDataset(FairseqDataset):
 
         # TODO: support different padding direction
         if self.new_src_eos is not None:
-            assert(samples['net_input']['src_tokens'][:, -1] != self.src_eos).sum() == 0
+            #assert(samples['net_input']['src_tokens'][:, -1] != self.src_eos).sum() == 0
             if self.new_src_eos_list is None:
                 samples['net_input']['src_tokens'][:, -1] = self.new_src_eos
             else:
