@@ -210,6 +210,8 @@ def get_parser(desc, default_task='translation'):
 
     parser.add_argument('--data-actor', type=str, default=None,
                         help='type of data actor [base|ave_emb|only_grad|interpolate_grad]')
+    parser.add_argument('--data-actor-embed-dropout', type=float, default=0., help='')
+    parser.add_argument('--data-actor-proj-dropout', type=float, default=0., help='')
     parser.add_argument('--extra-data-actor', type=str, default=None,
                         help='type of data actor [ave_emb]')
     parser.add_argument('--combine-probs', type=str, default=None,

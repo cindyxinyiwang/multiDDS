@@ -249,6 +249,11 @@ class MultilingualTranslationTask(FairseqTask):
                 tgt_langs.append(tgt)
         def language_pair_dataset(lang_pair):
             src, tgt = lang_pair.split('-')
+            #if tgt == 'turtoaze':
+            #    src_tau = 0.5
+            #    print('setting src_tau for to {}'.format(lang_pair, src_tau))
+            #else:
+            #    src_tau = -1
             langpair_dataset = load_langpair_dataset(
                 data_path, split, src, self.dicts[src], tgt, self.dicts[tgt],
                 combine=True, dataset_impl=self.args.dataset_impl,
@@ -257,6 +262,7 @@ class MultilingualTranslationTask(FairseqTask):
                 left_pad_target=self.args.left_pad_target,
                 max_source_positions=self.args.max_source_positions,
                 max_target_positions=self.args.max_target_positions,
+                src_tau=src_tau,
             )
             return self.alter_dataset_langtok(
                 langpair_dataset,
@@ -372,9 +378,7 @@ class MultilingualTranslationTask(FairseqTask):
                 #if self.args.out_score_type == 'exp':
                 #    data_actor_out[lang_pair] = data_actor_out[lang_pair]/sum_score
                 if self.args.out_score_type == 'tanh':
-                    print(data_score)
                     normed_data_score[lang_pair] = torch.softmax(data_score[lang_pair], dim=0) * example_size
-                    print(normed_data_score)
                 else:
                     normed_data_score[lang_pair] = data_score[lang_pair]*example_size/sum_score
                 #print(data_score[lang_pair])

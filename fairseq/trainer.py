@@ -1183,7 +1183,7 @@ class Trainer(object):
             # get per example reward
             with torch.no_grad():
                 self.optimizer.switch_param()
-                eta = 0.00001
+                eta = 0.0001
                 self.optimizer.add_grad(eta=eta)
                 cur_loss = {}
                 _loss, _sample_size, _logging_output = self.task.train_step(
@@ -1195,7 +1195,7 @@ class Trainer(object):
             for k in cached_loss.keys():
                 reward = 1./eta * (cur_loss[k] - cached_loss[k]) * self.optimizer.get_lr()
                 if self.args.out_score_type == 'tanh':
-                    loss = torch.nn.functional.log_softmax(data_actor_out[k], dim=0) * reward.data 
+                    loss = - torch.nn.functional.log_softmax(data_actor_out[k], dim=0) * reward.data 
                 else:
                     loss = -(data_actor_out[k] * reward.data)
                 #if self.args.out_score_type == 'sigmoid':
@@ -1205,7 +1205,7 @@ class Trainer(object):
                 if cur_loss[k].size(0) > 0:
                     loss.div_(cur_loss[k].size(0))
                 loss.sum().backward()
-            if self.args.data_actor == 'ave_emb': 
+            if self.args.data_actor == 'ave_emb' or self.args.data_actor =='transformer': 
                 self.data_optimizer.step()
                 self.data_optimizer.zero_grad()
             elif self.args.extra_data_actor == 'ave_emb':
