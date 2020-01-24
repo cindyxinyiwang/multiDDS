@@ -112,6 +112,26 @@ class FairseqOptimizer(object):
                 state = self.optimizer.state[p]
                 state['dev_grad'] = p.grad.data.clone()
 
+    def proj_grad(self):
+        if self.args.paramwise_proj_grad:
+            for group in self.optimizer.param_groups:
+               for p in group["params"]:
+                   if p.grad is None: continue
+                   state = self.optimizer.state[p]
+                   cosine_prod = (state['dev_grad'] * p.grad.data).sum().item()
+                   cosine_norm = p.grad.data.norm(2) * state['dev_grad'].norm(2)
+                   cosine_sim = cosine_prod / (cosine_norm + 1e-10)
+                   if cosine_sim > 0: continue
+                   p.grad = p.grad - cosine_sim * state['dev_grad'] 
+        else:
+            cosine_sim, consine_norm, dev_cosine_norm = self.get_grad_sim()
+            if cosine_sim > 0: return
+            for group in self.optimizer.param_groups:
+               for p in group["params"]:
+                   if p.grad is None: continue
+                   state = self.optimizer.state[p]
+                   p.grad = p.grad - cosine_sim * state['dev_grad'] 
+
     def save_dev_grad(self):
         """Save dev set gradient"""
         for group in self.optimizer.param_groups:

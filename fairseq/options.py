@@ -292,6 +292,10 @@ def get_parser(desc, default_task='translation'):
                         help='[ones|valid_loss|train_loss]')
     parser.add_argument('--layerwise-dds', action='store_true',
                         help='pretrain the data actor')
+    parser.add_argument('--proj-grad', action='store_true')
+    parser.add_argument('--paramwise-proj-grad', action='store_true')
+    parser.add_argument('--optim-weight-softmax-tau', type=float, default=-1, help='a float between (0, 1], smaller value makes weight more peaky')
+    parser.add_argument('--optim-weight-above-one', action='store_true')
 
     parser.add_argument('--datasize-t', type=int, default=None,
                         help='temperature for controlling datasize sampling')

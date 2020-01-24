@@ -13,7 +13,9 @@ from itertools import chain
 import math
 import os
 import sys
+import random
 import numpy as np
+from scipy.special import softmax
 
 import torch
 
@@ -255,11 +257,19 @@ class Trainer(object):
             return _optimizer
 
         model = list(self.model.models.values())[0]
-        #comopents = [model.encoder, model.decoder]
-        comopents = [[model.encoder.embed_tokens, model.encoder.embed_positions], 
-            [model.encoder.layers, model.encoder.layer_norm], 
-            [model.decoder.embed_tokens, model.decoder.embed_positions], 
-            [model.decoder.layers, model.decoder.layer_norm]]
+        comopents = [model.encoder, model.decoder]
+        
+        #comopents = [[model.encoder.embed_tokens, model.encoder.embed_positions], 
+        #    [model.encoder.layers, model.encoder.layer_norm], 
+        #    [model.decoder.embed_tokens, model.decoder.embed_positions], 
+        #    [model.decoder.layers, model.decoder.layer_norm]]
+
+        #comopents = [[model.encoder.embed_tokens, model.encoder.embed_positions], 
+        #    [model.encoder.layers[0], model.encoder.layer_norm], 
+        #    [model.encoder.layers[1], model.encoder.layer_norm], [model.encoder.layers[1], model.encoder.layer_norm],[model.encoder.layers[2], model.encoder.layer_norm],[model.encoder.layers[3], model.encoder.layer_norm],[model.encoder.layers[4], model.encoder.layer_norm],[model.encoder.layers[5], model.encoder.layer_norm],
+        #    [model.decoder.embed_tokens, model.decoder.embed_positions], 
+        #    [model.decoder.layers[0], model.decoder.layer_norm], [model.decoder.layers[1], model.decoder.layer_norm], [model.decoder.layers[1], model.decoder.layer_norm],[model.decoder.layers[2], model.decoder.layer_norm],[model.decoder.layers[3], model.decoder.layer_norm],[model.decoder.layers[4], model.decoder.layer_norm],[model.decoder.layers[5], model.decoder.layer_norm]]
+
         self._optimizer, self._lr_scheduler = [], []
         self.component_size = []
 
@@ -268,7 +278,8 @@ class Trainer(object):
             params = list(
                 filter(
                     lambda p: p.requires_grad,
-                    chain(comopent[0].parameters(), comopent[1].parameters(), self.criterion.parameters()),
+                    chain(comopent.parameters(), self.criterion.parameters()),
+                    #chain(comopent[0].parameters(), comopent[1].parameters(), self.criterion.parameters()),
                 )
             )
             param_count = np.array([p.numel() for p in params]).sum()
@@ -930,6 +941,24 @@ class Trainer(object):
         if not dummy_batch:
             self.meters['train_wall'].start()
 
+        if self.args.proj_grad:
+            train_lan_id_i = self.task.langpair2id[list(samples[0].keys())[0]]
+            train_lan_id_j = train_lan_id_i
+            while train_lan_id_j == train_lan_id_i:
+                train_lan_id_j = random.randint(0, len(samples[0].keys()))
+            lang_pair_j = self.task.lang_pairs[train_lan_id_j]
+            valid_sample = self.task.dataset('train').get_sample_with_key(lang_pair_j)
+            valid_sample = self._prepare_sample(valid_sample)
+            # calculate sim
+            loss, sample_size, logging_output = self.task.train_step(
+                                    valid_sample, self.model, self.criterion, self.optimizer)
+            if self.args.layerwise_dds:
+                for optimizer in self.optimizer:
+                    optimizer.save_train_grad_t0()
+            else:
+                self.optimizer.save_train_grad_t0()
+            self.zero_grad()
+
         # forward and backward pass
         logging_outputs, sample_sizes, ooms = [], [], 0
         for i, sample in enumerate(samples):
@@ -1069,7 +1098,21 @@ class Trainer(object):
                 else:
                     train_lan_id = self.task.langpair2id[list(sample.keys())[0]]
                     optim_weights = self.cur_data_actor_probs[:, train_lan_id]
-                    optim_weights = np.array(optim_weights) / optim_weights.sum() * self.cur_data_actor_probs.shape[0]
+                    if self.args.optim_weight_softmax_tau > 0:
+                        optim_weights = softmax(np.array(optim_weights)/self.args.optim_weight_softmax_tau) * self.cur_data_actor_probs.shape[0]
+                    else:
+                        optim_weights = np.array(optim_weights) / optim_weights.sum() * self.cur_data_actor_probs.shape[0]
+                    if self.args.optim_weight_above_one:
+                        optim_weights[optim_weights < 1] = 1. 
+                    print(optim_weights)
+
+            if self.args.proj_grad:
+                if self.args.layerwise_dds:
+                    for optimizer in self.optimizer:
+                        optimizer.proj_grad()
+                else:
+                    self.optimizer.proj_grad()
+
             # normalize grads by sample size
             if sample_size > 0:
                 if self.args.layerwise_dds:
