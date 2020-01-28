@@ -478,7 +478,7 @@ class Trainer(object):
                     valid_ntoks[i] += list(logging_output.values())[0]['ntokens']
                     if sample_size > 0:
                         loss = loss / sample_size
-                    sim, cur_grad_sim, prev_grad_sim = optimizer.get_grad_sim()
+                    sim, cur_grad_sim, prev_grad_sim = optimizer.get_grad_sim(self.args.grad_sim)
                     valid_sim_list.append(sim)
                     self.zero_grad()
                     if self.cuda:
@@ -492,6 +492,8 @@ class Trainer(object):
             # n_valid * n_train
             train_sim_list = np.transpose(np.array(train_sim_list))
             optimizer.switch_param(clear_cache=True)
+            if self.args.dds_no_neg_reward:
+                train_sim_list[train_sim_list<0] = 0.
             all_sim_list.append(train_sim_list)
 
         if args.pretrain_data_actor and not self.pretrained:
@@ -667,7 +669,7 @@ class Trainer(object):
                     loss, sample_size, logging_output = self.task.train_step(
                                             valid_sample, self.model, self.criterion, self.optimizer)
                     valid_samples.append(valid_sample)
-                sim, cur_cosine_norm, prev_cosine_norm = self.optimizer.get_grad_sim_id(i)
+                sim, cur_cosine_norm, prev_cosine_norm = self.optimizer.get_grad_sim_id(i, self.args.grad_sim)
                 sim_list.append(sim)
                 norm_list.append(cur_cosine_norm)
                 self.zero_grad()
@@ -676,7 +678,7 @@ class Trainer(object):
                 for j, valid_sample in enumerate(valid_samples):
                     loss, sample_size, logging_output = self.task.train_step(
                                             valid_sample, self.model, self.criterion, self.optimizer)
-                    sim, cur_cosine_norm, prev_cosine_norm = self.optimizer.get_grad_sim_id(i)
+                    sim, cur_cosine_norm, prev_cosine_norm = self.optimizer.get_grad_sim_id(i, self.args_grad_sim)
                     cur_sim_list.append(sim)
                     cur_norm_list.append(cur_cosine_norm)
                     self.zero_grad()
@@ -716,7 +718,7 @@ class Trainer(object):
                         loss, sample_size, logging_output = self.task.train_step(
                                                 valid_sample, self.model, self.criterion, optimizer)
                         valid_samples.append(valid_sample)
-                    sim, cur_cosine_norm, prev_cosine_norm = optimizer.get_grad_sim()
+                    sim, cur_cosine_norm, prev_cosine_norm = optimizer.get_grad_sim(self.args.grad_sim)
                     sim_list.append(sim)
                     norm_list.append(cur_cosine_norm)
                     self.zero_grad()
@@ -725,7 +727,7 @@ class Trainer(object):
                     for i, valid_sample in enumerate(valid_samples):
                         loss, sample_size, logging_output = self.task.train_step(
                                                 valid_sample, self.model, self.criterion, optimizer)
-                        sim, cur_cosine_norm, prev_cosine_norm = optimizer.get_grad_sim()
+                        sim, cur_cosine_norm, prev_cosine_norm = optimizer.get_grad_sim(self.args.grad_sim)
                         cur_sim_list.append(sim)
                         cur_norm_list.append(cur_cosine_norm)
                         self.zero_grad()
@@ -736,21 +738,21 @@ class Trainer(object):
                 optimizer.switch_param(clear_cache=True)
                 # logging
                 # first log regular dds
-                print("regular dds reward:")
-                print(" ".join([str(s) for s in sim_list]))
-                print("regular dds norm:")
-                print(" ".join([str(s.item()) for s in norm_list]))
+                #print("regular dds reward:")
+                #print(" ".join([str(s) for s in sim_list]))
+                #print("regular dds norm:")
+                #print(" ".join([str(s.item()) for s in norm_list]))
                 # second log new dds
-                all_sim_list = np.transpose(np.array(all_sim_list))
-                all_norm_list = np.transpose(np.array(all_norm_list))
-                print("new dds reward list:")
-                for l in all_sim_list:
-                    print(" ".join([str(s) for s in l]))
-                print("new dds norm:")
-                for l in all_norm_list:
-                    print(" ".join([str(s.item()) for s in l]))
-                print("new dds reward list:")
-                print(" ".join([str(s) for s in np.mean(all_sim_list, axis=0)]))
+                #all_sim_list = np.transpose(np.array(all_sim_list))
+                #all_norm_list = np.transpose(np.array(all_norm_list))
+                #print("new dds reward list:")
+                #for l in all_sim_list:
+                #    print(" ".join([str(s) for s in l]))
+                #print("new dds norm:")
+                #for l in all_norm_list:
+                #    print(" ".join([str(s.item()) for s in l]))
+                #print("new dds reward list:")
+                #print(" ".join([str(s) for s in np.mean(all_sim_list, axis=0)]))
         
                 if args.pretrain_data_actor and not self.pretrained:
                     if self.args.feature_type == 'ones':
@@ -935,22 +937,41 @@ class Trainer(object):
             self.meters['train_wall'].start()
 
         if self.args.proj_grad:
-            train_lan_id_i = self.task.langpair2id[list(samples[0].keys())[0]]
-            train_lan_id_j = train_lan_id_i
-            while train_lan_id_j == train_lan_id_i:
-                train_lan_id_j = random.randint(0, len(samples[0].keys()))
-            lang_pair_j = self.task.lang_pairs[train_lan_id_j]
-            valid_sample = self.task.dataset('train').get_sample_with_key(lang_pair_j)
-            valid_sample = self._prepare_sample(valid_sample)
-            # calculate sim
-            loss, sample_size, logging_output = self.task.train_step(
-                                    valid_sample, self.model, self.criterion, self.optimizer)
-            if self.args.layerwise_dds:
-                for optimizer in self.optimizer:
-                    optimizer.save_train_grad_t0()
+            if self.args.sample_proj_count == 1:
+                train_lan_id_i = self.task.langpair2id[list(samples[0].keys())[0]]
+                train_lan_id_j = train_lan_id_i
+                while train_lan_id_j == train_lan_id_i:
+                    train_lan_id_j = random.randint(0, len(samples[0].keys()))
+                lang_pair_j = self.task.lang_pairs[train_lan_id_j]
+                valid_sample = self.task.dataset('train').get_sample_with_key(lang_pair_j)
+                valid_sample = self._prepare_sample(valid_sample)
+                # calculate sim
+                loss, sample_size, logging_output = self.task.train_step(
+                                        valid_sample, self.model, self.criterion, self.optimizer)
+                if self.args.layerwise_dds:
+                    for optimizer in self.optimizer:
+                        optimizer.save_train_grad_t0()
+                else:
+                    self.optimizer.save_train_grad_t0()
+                self.zero_grad()
             else:
-                self.optimizer.save_train_grad_t0()
-            self.zero_grad()
+                train_lan_id_i = self.task.langpair2id[list(samples[0].keys())[0]]
+                task_ids = [i for i in range(len(self.task.lang_pairs))]
+                task_ids.remove(train_lan_id_i)
+                random.shuffle(task_ids)
+                task_ids = task_ids[:self.args.sample_proj_count]
+                for idx in task_ids:
+                    valid_sample = self.task.dataset('train').get_sample_with_key(self.task.lang_pairs[idx])
+                    valid_sample = self._prepare_sample(valid_sample)
+                    # calculate sim
+                    loss, sample_size, logging_output = self.task.train_step(
+                                            valid_sample, self.model, self.criterion, self.optimizer)
+                    if self.args.layerwise_dds:
+                        for optimizer in self.optimizer:
+                            optimizer.save_proj_grad_id(idx)
+                    else:
+                        self.optimizer.save_proj_grad_id(idx)
+                    self.zero_grad()
 
         if self.args.data_actor_step_update and update_actor:
             self.optimizer.clone_param()
@@ -1115,11 +1136,19 @@ class Trainer(object):
                     print(optim_weights)
 
             if self.args.proj_grad:
-                if self.args.layerwise_dds:
-                    for optimizer in self.optimizer:
-                        optimizer.proj_grad()
+                if self.args.sample_proj_count == 1:
+                    if self.args.layerwise_dds:
+                        for optimizer in self.optimizer:
+                            optimizer.proj_grad()
+                    else:
+                        self.optimizer.proj_grad()
                 else:
-                    self.optimizer.proj_grad()
+                    for idx in task_ids:
+                        if self.args.layerwise_dds:
+                            for optimizer in self.optimizer:
+                                optimizer.proj_grad_id(idx)
+                        else:
+                            self.optimizer.proj_grad_id(idx)
 
             # normalize grads by sample size
             if sample_size > 0:
