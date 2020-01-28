@@ -170,12 +170,12 @@ class LSTMActor(torch.nn.Module):
 
 class TransformerActor(torch.nn.Module):
     """Transformer based actor"""
-    def __init__(self, args, task):
+    def __init__(self, args, task, model):
         super(TransformerActor, self).__init__()
         self.tgt_dict = task.target_dictionary
         self.args = args
-        args = copy.deepcopy(args)
-        args.arch = 'transformer'
+        #args = copy.deepcopy(args)
+        #args.arch = 'transformer'
         #args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 128)
         #args.encoder_ffn_embed_dim = getattr(args, 'encoder_ffn_embed_dim', 512)
         #args.encoder_layers = getattr(args, 'encoder_layers', 4)
@@ -202,20 +202,61 @@ class TransformerActor(torch.nn.Module):
         #args.decoder_output_dim = getattr(args, 'decoder_output_dim', args.decoder_embed_dim)
         #args.decoder_input_dim = getattr(args, 'decoder_input_dim', args.decoder_embed_dim)
 
-        self.model = fairseq.models.build_model(args, task)
+        if self.args.data_actor_share_model:
+            self.model = model
+        else:
+            self.model = fairseq.models.build_model(args, task)
         
-        self.project_out = torch.nn.Linear(args.decoder_output_dim, 1)
+        if 'src_tgt' in self.args.data_actor_feature_postprocess:
+            self.project_out = torch.nn.Linear(args.decoder_output_dim + args.decoder_output_dim, 1)
+        else: 
+            self.project_out = torch.nn.Linear(args.decoder_output_dim, 1)
         self.out_score_type = args.out_score_type
         
     def forward(self, sample):
         # B X L X dim
-        net_output, _ = self.model.extract_features(**sample['net_input'])
+        #print(self.model.extract_features(**sample['net_input']))
+        net_output, extra_state = self.model.extract_features(**sample['net_input'])
+        #net_output, _ = list(self.model.models.values())[0].extract_features(**sample['net_input'])
         if self.args.data_actor_feature_postprocess == 'average':
-            pad_mask = (~(sample['target'] == self.tgt_dict.pad())).float()
-            tgt_len = pad_mask.sum(dim=1).unsqueeze(1)
+            pad_mask = (sample['target'] == self.tgt_dict.pad())
+            tgt_len = (~pad_mask).float().sum(dim=1).unsqueeze(1)
+            # mask out the tgt embs
+            net_output.masked_fill_(pad_mask.unsqueeze(2), 0)
             inp = net_output.sum(dim=1) / tgt_len
-        elif self.args.data_actor_feature_postprocess == 'last':
-            inp = net_output[:,-1,:]
+        elif self.args.data_actor_feature_postprocess == 'tanh':
+            pad_mask = (sample['target'] == self.tgt_dict.pad())
+            # mask out the tgt embs
+            net_output.masked_fill_(pad_mask.unsqueeze(2), 0)
+            inp = torch.tanh(net_output.sum(dim=1))
+        elif self.args.data_actor_feature_postprocess == 'src_tgt_tanh':
+            tgt_pad_mask = (sample['target'] == self.tgt_dict.pad())
+            # mask out the tgt embs
+            net_output.masked_fill_(tgt_pad_mask.unsqueeze(2), 0)
+            tgt_inp = torch.tanh(net_output.sum(dim=1))
+
+            src_out, src_pad_mask = extra_state['encoder_out']['encoder_out'].clone().permute(1, 0, 2), extra_state['encoder_out']['encoder_padding_mask']
+            if src_pad_mask is not None:
+                src_out.masked_fill_(src_pad_mask.unsqueeze(2), 0)
+            src_inp = torch.tanh(src_out.sum(dim=1))
+            
+            inp = torch.cat([src_inp, tgt_inp], dim=-1)
+        elif self.args.data_actor_feature_postprocess == 'src_tgt_average':
+            tgt_pad_mask = (sample['target'] == self.tgt_dict.pad())
+            tgt_len = (~tgt_pad_mask).float().sum(dim=1).unsqueeze(1)
+            # mask out the tgt embs
+            net_output.masked_fill_(tgt_pad_mask.unsqueeze(2), 0)
+            tgt_inp = net_output.sum(dim=1) / tgt_len
+
+            src_out, src_pad_mask = extra_state['encoder_out']['encoder_out'].clone().permute(1, 0, 2), extra_state['encoder_out']['encoder_padding_mask']
+            if src_pad_mask is not None:
+                src_len = (~src_pad_mask).float().sum(dim=1).unsqueeze(1)
+                src_out.masked_fill_(src_pad_mask.unsqueeze(2), 0)
+            else:
+                src_len = src_out.size(0)
+            src_inp = src_out.sum(dim=1) / src_len
+           
+            inp = torch.cat([src_inp, tgt_inp], dim=-1)
         else:
             print('Unsupported data actor postprocess feature!')
             exit(0)

@@ -226,7 +226,7 @@ class FairseqTask(object):
                 no_repeat_ngram_size=getattr(args, 'no_repeat_ngram_size', 0),
             )
 
-    def train_step(self, sample, model, criterion, optimizer, ignore_grad=False, data_actor=None, loss_copy=None, data_actor_out=None):
+    def train_step(self, sample, model, criterion, optimizer, ignore_grad=False, data_score=None, loss_copy=False):
         """
         Do forward and backward, and return the loss as computed by *criterion*
         for the given *model* and *sample*.
@@ -247,11 +247,12 @@ class FairseqTask(object):
                 - logging outputs to display while training
         """
         model.train()
-        loss, sample_size, logging_output, _ = criterion(model, sample)
+        loss, sample_size, logging_output, loss_data = criterion(model, sample, data_score=data_score, loss_copy=((data_score is not None) or loss_copy))
         if ignore_grad:
             loss *= 0
-        optimizer.backward(loss)
-        return loss, sample_size, logging_output
+        else:
+            optimizer.backward(loss)
+        return loss, sample_size, logging_output, loss_data
 
     def valid_step(self, sample, model, criterion):
         model.eval()

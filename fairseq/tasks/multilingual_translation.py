@@ -262,7 +262,6 @@ class MultilingualTranslationTask(FairseqTask):
                 left_pad_target=self.args.left_pad_target,
                 max_source_positions=self.args.max_source_positions,
                 max_target_positions=self.args.max_target_positions,
-                src_tau=src_tau,
             )
             return self.alter_dataset_langtok(
                 langpair_dataset,
@@ -356,8 +355,10 @@ class MultilingualTranslationTask(FairseqTask):
             raise ValueError('MultilingualTranslationTask requires a FairseqMultiModel architecture')
         return model
 
-    def train_step(self, sample, model, criterion, optimizer, ignore_grad=False, data_actor=None, loss_copy=None, data_actor_out=None):
+    #def train_step(self, sample, model, criterion, optimizer, ignore_grad=False, data_actor=None, loss_copy=None, data_actor_out=None):
+    def train_step(self, sample, model, criterion, optimizer, ignore_grad=False, data_score=None, loss_copy=False):
         model.train()
+        data_actor, loss_copy, data_actor_out = None, None, None
         agg_loss, agg_sample_size, agg_logging_output = 0., 0., {}
         normed_data_score = {}
         if (self.args.data_actor_step_update) and data_actor is not None:

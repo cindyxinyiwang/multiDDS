@@ -15,6 +15,7 @@ import os
 import sys
 import random
 import numpy as np
+import copy
 from scipy.special import softmax
 
 import torch
@@ -100,13 +101,24 @@ class Trainer(object):
                 self.data_actor = self.data_actor.cuda()
             self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
         elif self.args.data_actor == 'transformer':
-            self.data_actor = TransformerActor(args, task)
+            self.data_actor = TransformerActor(args, task, model)
             if self.cuda:
                 self.data_actor = self.data_actor.cuda()
-            self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
+            params = [p for p in self.data_actor.parameters() if p.requires_grad]
+            data_actor_args = copy.deepcopy(args)
+            #data_actor_args.lr = args.data_actor_lr
+            self.data_optimizer = optim.build_optimizer(data_actor_args, params)
+            #self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
         else:
             self.data_actor = None
             self.data_optimizer = None
+
+        if self.data_actor is not None and self.args.data_actor_lr_scheduler is not None:
+            print("Building lr scheduler for data actor...")
+            self.data_actor_lr_scheduler = lr_scheduler.build_lr_scheduler(self.args, self.data_optimizer)
+            self.data_actor_lr_scheduler.step_update(0)
+        else:
+            self.data_actor_lr_scheduler = None
 
         if self.args.data_actor_step_update:
             self.dev_itr = self.task.get_batch_iterator(
@@ -127,20 +139,6 @@ class Trainer(object):
             )[0]
             self.dev_itr.next_epoch_itr(shuffle=True)
         
-        if self.args.extra_data_actor == 'ave_emb':
-            if self.args.data_actor_model_embed:
-                self.extra_data_actor = AveEmbActor(args, task, emb=self._model.embed_tokens)
-            else:
-                self.extra_data_actor = AveEmbActor(args, task)
-            if self.cuda:
-                self.extra_data_actor = self.extra_data_actor.cuda()
-            if not args.data_actor_embed_grad:
-                self.extra_data_optimizer = torch.optim.Adam([p for p in self.extra_data_actor.project_out.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
-            else:
-                self.extra_data_optimizer = torch.optim.Adam([p for p in self.extra_data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
-        else:
-            self.extra_data_actor = None
-            self.extra_data_optimizer = None
         self.baseline = None
         if args.language_weight:
             self.language_weight = np.array([float(w) for w in args.language_weight.split(",")]).reshape(-1, 1) 
@@ -309,12 +307,7 @@ class Trainer(object):
                 else:
                     data_actor_state = self.data_actor.state_dict()
                     data_optimizer_state = self.data_optimizer.state_dict()
-            if self.extra_data_actor is None:
-                extra_data_actor_state = None
-                extra_data_optimizer_state = None
-            else:
-                extra_data_actor_state = self.extra_data_actor.state_dict()
-                extra_data_optimizer_state = self.extra_data_optimizer.state_dict()
+            
             if self.args.layerwise_dds:
                 optimizer = self.optimizer[0]
                 lr_scheduler = self.lr_scheduler[0]
@@ -326,7 +319,6 @@ class Trainer(object):
                 filename, self.args, self.get_model().state_dict(), self.get_criterion(),
                 self.optimizer, self.lr_scheduler, self.get_num_updates(),
                 self._optim_history, extra_state, data_actor_state, data_optimizer_state,
-                extra_data_actor_state, extra_data_optimizer_state,
             )
 
     def load_checkpoint(
@@ -883,7 +875,7 @@ class Trainer(object):
                 for p in self.data_optimizer.param_groups:
                     p['lr'] = self.args.data_actor_lr
 
-    def get_train_iterator(self, epoch, combine=True):
+    def get_train_iterator(self, epoch, combine=True, filtered_maxpos_indices=None):
         """Return an EpochBatchIterator over the training set for a given epoch."""
         print('| loading train data for epoch {}'.format(epoch))
         self.task.load_dataset(self.args.train_subset, epoch=epoch, combine=combine)
@@ -902,6 +894,7 @@ class Trainer(object):
             shard_id=self.args.distributed_rank,
             num_workers=self.args.num_workers,
             epoch=epoch,
+            filtered_maxpos_indices=filtered_maxpos_indices,
         )
 
     def get_filtered_train_iterator(self, epoch, combine=True, filtered_maxpos_indices=None):
@@ -959,6 +952,27 @@ class Trainer(object):
                 self.optimizer.save_train_grad_t0()
             self.zero_grad()
 
+        if self.args.data_actor_step_update and update_actor:
+            self.optimizer.clone_param()
+            data_actor_out = []
+            normed_data_score = []
+            cached_loss = []
+            trained_sample_idx = []
+            example_size = []
+            for i, sample in enumerate(samples):
+                sample = self._prepare_sample(sample)
+                data_actor_out.append(self.data_actor(sample))
+                example_size = sample['nsentences']
+                normed_data_score.append(torch.softmax(data_actor_out[-1], dim=0) * example_size)
+                #example_size.append(sample['nsentences'])
+            #normed_score = torch.softmax(torch.cat(data_actor_out, dim=0), dim=0) * sum(example_size)
+            #start = 0
+            #for i, size in enumerate(example_size):
+            #    normed_data_score.append(normed_score[start:start+size])
+            #    start = start + size
+        else:
+            normed_data_score = [None for _ in range(len(samples))]
+
         # forward and backward pass
         logging_outputs, sample_sizes, ooms = [], [], 0
         for i, sample in enumerate(samples):
@@ -989,25 +1003,19 @@ class Trainer(object):
             try:
                 with maybe_no_sync():
                     # forward and backward
-                    if self.args.data_actor_step_update and update_actor:
-                        self.optimizer.clone_param()
-                        data_actor = self.data_actor
-                        cached_loss = {}
-                        data_actor_out = {}
-                    elif self.args.extra_data_actor == 'ave_emb' and update_actor:
-                        self.optimizer.clone_param()
-                        data_actor = self.extra_data_actor
-                        cached_loss = {}
-                        data_actor_out = {}
-                    else:
-                        data_actor = None
-                        cached_loss = None
-                        data_actor_out = None
-                    loss, sample_size, logging_output = self.task.train_step(
+                    #loss, sample_size, logging_output = self.task.train_step(
+                    #    sample, self.model, self.criterion, self.optimizer,
+                    #    ignore_grad, data_actor=data_actor, 
+                    #    loss_copy=cached_loss, data_actor_out=data_actor_out,
+                    #)
+                    loss, sample_size, logging_output, loss_data = self.task.train_step(
                         sample, self.model, self.criterion, self.optimizer,
-                        ignore_grad, data_actor=data_actor, 
-                        loss_copy=cached_loss, data_actor_out=data_actor_out,
+                        ignore_grad, 
+                        data_score=normed_data_score[i],
                     )
+                    if normed_data_score[i] is not None:
+                        cached_loss.append(loss_data)
+                        trained_sample_idx.append(i)
                     # actually saving training grad
                     if self.args.data_actor == 'lan' and update_actor:
                         if len(samples) > 1:
@@ -1175,44 +1183,48 @@ class Trainer(object):
                 self.dev_itr.next_epoch_itr(shuffle=True)
             for valid_sample in self.dev_itr._cur_epoch_itr:
                 valid_sample = self._prepare_sample(valid_sample)
-                _loss, _sample_size, _logging_output = self.task.train_step(
+                _loss, _sample_size, _logging_output, _ = self.task.train_step(
                                         valid_sample, self.model, self.criterion, self.optimizer)
                 self.optimizer.save_dev_grad()
                 break
             self.zero_grad()
             # get per example reward
-            with torch.no_grad():
-                self.optimizer.switch_param()
-                eta = 0.0001
-                self.optimizer.add_grad(eta=eta)
-                cur_loss = {}
-                _loss, _sample_size, _logging_output = self.task.train_step(
+            #with torch.no_grad():
+            self.optimizer.switch_param()
+            eta = 0.0001
+            self.optimizer.add_grad(eta=eta)
+            for i in trained_sample_idx:
+                sample = self._prepare_sample(samples[i])
+                loss, sample_size, logging_output, loss_data = self.task.train_step(
                     sample, self.model, self.criterion, self.optimizer,
-                    ignore_grad=True, data_actor=None, loss_copy=cur_loss,
+                    ignore_grad=True, 
+                    loss_copy=True,
                 )
-                self.optimizer.switch_param(clear_cache=True)
-            # optimize data actor
-            for k in cached_loss.keys():
-                reward = 1./eta * (cur_loss[k] - cached_loss[k]) * self.optimizer.get_lr()
-                if self.args.out_score_type == 'tanh':
-                    loss = - torch.nn.functional.log_softmax(data_actor_out[k], dim=0) * reward.data 
-                else:
-                    loss = -(data_actor_out[k] * reward.data)
-                #if self.args.out_score_type == 'sigmoid':
-                #    loss = -(data_actor_out[k] * reward.data)
-                #elif self.args.out_score_type == 'exp':
-                #    loss = -(torch.log(1e-20 + data_actor_out[k]) * reward.data)
-                if cur_loss[k].size(0) > 0:
-                    loss.div_(cur_loss[k].size(0))
+                reward = 1./eta * (loss_data - cached_loss[i]) * self.optimizer.get_lr()
+                loss = -torch.nn.functional.log_softmax(data_actor_out[i], dim=0) * reward.data
+                loss.div_(loss_data.size(0))
                 loss.sum().backward()
-            if self.args.data_actor == 'ave_emb' or self.args.data_actor =='transformer': 
-                self.data_optimizer.step()
-                self.data_optimizer.zero_grad()
-            elif self.args.extra_data_actor == 'ave_emb':
-                self.extra_data_optimizer.step()
-                self.extra_data_optimizer.zero_grad()
-        return logging_output
+            self.optimizer.switch_param(clear_cache=True)
 
+            # optimize data actor
+            #for i in range(len(cached_loss)):
+            #    reward = 1./eta * (cur_loss[i] - cached_loss[i]) * self.optimizer.get_lr()
+            #    if self.args.out_score_type == 'tanh':
+            #        loss = - torch.nn.functional.log_softmax(data_actor_out[k], dim=0) * reward.data 
+            #    else:
+            #        loss = -(data_actor_out[k] * reward.data)
+            #    #if self.args.out_score_type == 'sigmoid':
+            #    #    loss = -(data_actor_out[k] * reward.data)
+            #    #elif self.args.out_score_type == 'exp':
+            #    #    loss = -(torch.log(1e-20 + data_actor_out[k]) * reward.data)
+            #    if cur_loss[k].size(0) > 0:
+            #        loss.div_(cur_loss[k].size(0))
+            #    loss.sum().backward()
+            self.data_optimizer.step()
+            self.data_optimizer.zero_grad()
+            if self.data_actor_lr_scheduler is not None:
+                self.data_actor_lr_scheduler.step_update(self.get_num_updates())
+        return logging_output
 
     def valid_step(self, sample, raise_oom=False):
         """Do forward pass in evaluation mode."""

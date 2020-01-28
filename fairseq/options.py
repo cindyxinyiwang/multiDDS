@@ -216,10 +216,11 @@ def get_parser(desc, default_task='translation'):
                         help='type of data actor [ave_emb]')
     parser.add_argument('--combine-probs', type=str, default=None,
                         help=' [weight_by_size]')
-    parser.add_argument('--data-actor-lr', type=float, default=0.01,
+    parser.add_argument('--data-actor-lr', type=eval_str_list, default=0.01,
                         help='lr for optimizing data actor')
     parser.add_argument('--data-actor-optim-step', type=int, default=1,
                         help='number of steps to optimize data actor')
+    parser.add_argument('--data-actor-lr-scheduler', type=str, default=None)
     parser.add_argument('--data-actor-embed-dim', type=int, default=32,
                         help='dimension of word embedding for data actor')
     parser.add_argument('--lan-embed-dim', type=int, default=None,
@@ -230,7 +231,9 @@ def get_parser(desc, default_task='translation'):
                         help='[0|1] whether to optimize model embedding')
     parser.add_argument('--out-score-type', type=str, default='sigmoid',
                         help='[sigmoid|exp]')
-    parser.add_argument('--tanh-constant', type=int, default=10,
+    parser.add_argument('--data-actor-share-model', action='store_true',
+                        help='whether to allow data actor and main model to share the same parameter')
+    parser.add_argument('--tanh-constant', type=float, default=10,
                         help='the constant multiplier for tanh output')
     parser.add_argument('--eval-bleu', action='store_true',
                         help='whether to valid on bleu score')
@@ -263,7 +266,7 @@ def get_parser(desc, default_task='translation'):
     parser.add_argument('--embedding-file', type=str, default=None,
                         help='the file path to init data actor embedding')
     parser.add_argument('--data-actor-feature-postprocess', type=str, default='last',
-                        help='[last|average]')
+                        help='[tanh|average]')
 
 
     # TCS options
