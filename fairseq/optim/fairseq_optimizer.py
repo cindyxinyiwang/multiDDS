@@ -79,7 +79,7 @@ class FairseqOptimizer(object):
                     #state['train_grad'][i] = p.grad.data.clone()
                     state['train_grad'][i] = self.args.a1*p.grad.data + self.args.a0*state['train_grad'][i]
 
-    def get_grad_sim_id(self, i):
+    def get_grad_sim_id(self, i, grad_sim='cosine'):
         """Get gradient similarity with dev set gradient"""
         cosine_prod, cosine_norm, dev_cosine_norm = 0, 0, 0
         for group in self.optimizer.param_groups:
@@ -89,10 +89,10 @@ class FairseqOptimizer(object):
                 cosine_prod += (state['train_grad'][i] * p.grad.data).sum().item()
                 cosine_norm += p.grad.data.norm(2) ** 2
                 dev_cosine_norm += state['train_grad'][i].norm(2) ** 2
-        if self.args.grad_sim == "cosine":
+        if grad_sim == "cosine":
             cosine_sim = cosine_prod / ((cosine_norm*dev_cosine_norm)**0.5 + 1e-10)
             return cosine_sim.item(), cosine_norm, dev_cosine_norm
-        elif self.args.grad_sim == "dot_prod":
+        elif grad_sim == "dot_prod":
             cosine_sim = cosine_prod 
             return cosine_sim, cosine_norm, dev_cosine_norm
 
@@ -103,6 +103,45 @@ class FairseqOptimizer(object):
                 if p.grad is None: continue
                 state = self.optimizer.state[p]
                 state['dev_grad'] = p.grad.data.clone() - state['dev_grad']
+ 
+    def save_proj_grad_id(self, i):
+        """Save train set gradient"""
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                if p.grad is None: continue
+                state = self.optimizer.state[p]
+                if 'train_grad' not in state:
+                    state['train_grad'] = [None for _ in range(len(self.args.lang_pairs))]
+                state['train_grad'][i] = p.grad.data.clone()
+
+    def proj_grad_id(self, i):
+        if self.args.paramwise_proj_grad:
+            for group in self.optimizer.param_groups:
+               for p in group["params"]:
+                   if p.grad is None: continue
+                   state = self.optimizer.state[p]
+                   cosine_prod = (state['train_grad'][i] * p.grad.data).sum().item()
+                   if cosine_prod > 0: continue
+                   if self.args.grad_sim == "cosine":
+                       cosine_norm = p.grad.data.norm(2) * state['train_grad'][i].norm(2)
+                       cosine_sim = cosine_prod / (cosine_norm**0.5+1e-10)
+                   else:
+                       cosine_sim = cosine_prod / (state['train_grad'][i].norm(2)+1e-10)
+                   p.grad = p.grad - cosine_sim * state['train_grad'][i] 
+        else:
+            if self.args.proj_grad_sim == "cosine":
+                cosine_sim, consine_norm, dev_cosine_norm = self.get_grad_sim_id(i, self.args.proj_grad_sim)
+                if cosine_sim > 0: return
+            elif self.args.proj_grad_sim == "dot_prod":
+                dot_prod, consine_norm, dev_cosine_norm = self.get_grad_sim_id(i, self.args.proj_grad_sim)
+                if dot_prod > 0: return
+                cosine_sim = dot_prod / (dev_cosine_norm+1e-10)
+            for group in self.optimizer.param_groups:
+               for p in group["params"]:
+                   if p.grad is None: continue
+                   state = self.optimizer.state[p]
+                   p.grad = p.grad - cosine_sim * state['train_grad'][i] 
+
 
     def save_train_grad_t0(self):
         """Save train set gradient"""
@@ -119,13 +158,21 @@ class FairseqOptimizer(object):
                    if p.grad is None: continue
                    state = self.optimizer.state[p]
                    cosine_prod = (state['dev_grad'] * p.grad.data).sum().item()
-                   cosine_norm = p.grad.data.norm(2) * state['dev_grad'].norm(2)
-                   cosine_sim = cosine_prod / (cosine_norm + 1e-10)
-                   if cosine_sim > 0: continue
+                   if cosine_prod > 0: continue
+                   if self.args.grad_sim == "cosine":
+                       cosine_norm = p.grad.data.norm(2) * state['dev_grad'].norm(2)
+                       cosine_sim = cosine_prod / (cosine_norm**0.5+1e-10)
+                   else:
+                       cosine_sim = cosine_prod / (state['dev_grad'].norm(2)+1e-10)
                    p.grad = p.grad - cosine_sim * state['dev_grad'] 
         else:
-            cosine_sim, consine_norm, dev_cosine_norm = self.get_grad_sim()
-            if cosine_sim > 0: return
+            if self.args.proj_grad_sim == "cosine":
+                cosine_sim, consine_norm, dev_cosine_norm = self.get_grad_sim(self.args.proj_grad_sim)
+                if cosine_sim > 0: return
+            elif self.args.proj_grad_sim == "dot_prod":
+                dot_prod, consine_norm, dev_cosine_norm = self.get_grad_sim(self.args.proj_grad_sim)
+                if dot_prod > 0: return
+                cosine_sim = dot_prod / (dev_cosine_norm+1e-10)
             for group in self.optimizer.param_groups:
                for p in group["params"]:
                    if p.grad is None: continue
@@ -167,7 +214,7 @@ class FairseqOptimizer(object):
                 else:
                     state['param_copy'] = cur_p
 
-    def get_grad_sim(self):
+    def get_grad_sim(self, grad_sim='cosine'):
         """Get gradient similarity with dev set gradient"""
         cosine_prod, cosine_norm, dev_cosine_norm = 0, 0, 0
         for group in self.optimizer.param_groups:
@@ -177,10 +224,10 @@ class FairseqOptimizer(object):
                 cosine_prod += (state['dev_grad'] * p.grad.data).sum().item()
                 cosine_norm += p.grad.data.norm(2) ** 2
                 dev_cosine_norm += state['dev_grad'].norm(2) ** 2
-        if self.args.grad_sim == "cosine":
+        if grad_sim == "cosine":
             cosine_sim = cosine_prod / ((cosine_norm*dev_cosine_norm)**0.5 + 1e-10)
             return cosine_sim.item(), cosine_norm, dev_cosine_norm
-        elif self.args.grad_sim == "dot_prod":
+        elif grad_sim == "dot_prod":
             cosine_sim = cosine_prod 
             return cosine_sim, cosine_norm, dev_cosine_norm
 

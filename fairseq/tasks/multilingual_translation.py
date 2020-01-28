@@ -262,7 +262,6 @@ class MultilingualTranslationTask(FairseqTask):
                 left_pad_target=self.args.left_pad_target,
                 max_source_positions=self.args.max_source_positions,
                 max_target_positions=self.args.max_target_positions,
-                src_tau=src_tau,
             )
             return self.alter_dataset_langtok(
                 langpair_dataset,
