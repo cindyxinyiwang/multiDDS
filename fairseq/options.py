@@ -229,6 +229,8 @@ def get_parser(desc, default_task='translation'):
                         help='[0|1] whether to use model embedding')
     parser.add_argument('--data-actor-embed-grad', type=int, default=1,
                         help='[0|1] whether to optimize model embedding')
+    parser.add_argument('--data-loss-lambda', type=float, default=0,
+                        help='the percentage of using actual data loss')
     parser.add_argument('--out-score-type', type=str, default='sigmoid',
                         help='[sigmoid|exp]')
     parser.add_argument('--data-actor-share-model', action='store_true',

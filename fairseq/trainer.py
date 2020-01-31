@@ -1227,8 +1227,8 @@ class Trainer(object):
             self.optimizer.switch_param()
             eta = 0.0001
             self.optimizer.add_grad(eta=eta)
-            for i in trained_sample_idx:
-                sample = self._prepare_sample(samples[i])
+            for i, idx in enumerate(trained_sample_idx):
+                sample = self._prepare_sample(samples[idx])
                 loss, sample_size, logging_output, loss_data = self.task.train_step(
                     sample, self.model, self.criterion, self.optimizer,
                     ignore_grad=True, 
@@ -1242,11 +1242,11 @@ class Trainer(object):
                     self.baseline = self.baseline - 0.001 * (self.baseline - (reward.sum()/reward.size(0)).item() )
                     #print("baseline:", self.baseline)
                 if self.args.out_score_type == "tanh": 
-                    loss = -torch.nn.functional.log_softmax(data_actor_out[i], dim=0) * (reward.data - self.baseline)
+                    loss = -torch.nn.functional.log_softmax(data_actor_out[idx], dim=0) * (reward.data - self.baseline)
                 elif self.args.out_score_type == "sigmoid":
-                    loss = -torch.log(data_actor_out[i]) * (reward.data - self.baseline)
+                    loss = -torch.log(data_actor_out[idx]) * (reward.data - self.baseline)
                 elif self.args.out_score_type == "word_score":
-                    loss = -data_actor_out[i] * (reward.data - self.baseline)
+                    loss = (-data_actor_out[idx] * (reward.data - self.baseline)) * (1-self.args.data_loss_lambda) + (-data_actor_out[idx]) * self.args.data_loss_lambda
                 loss.div_(loss_data.size(0))
                 loss.sum().backward()
             self.optimizer.switch_param(clear_cache=True)
