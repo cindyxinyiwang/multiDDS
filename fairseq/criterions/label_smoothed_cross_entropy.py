@@ -15,7 +15,9 @@ def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=None, reduce=T
         target = target.unsqueeze(-1)
     if loss_copy:
         # keep a copy of nll_loss data
-        nll_loss_data = -lprobs.gather(dim=-1, index=target).data.sum(dim=-1).clone()
+        # lprobs: [BT X VSIZE]
+        nll_loss_data = -lprobs.gather(dim=-1, index=target).data.clone()
+        # nll_loss_data: [BT X 1]
     else:
         nll_loss_data = None
 

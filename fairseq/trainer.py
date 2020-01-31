@@ -967,7 +967,7 @@ class Trainer(object):
             trained_sample_idx = []
             example_size = []
             if self.args.out_score_type == "word_score":
-                score_sum, word_size = None, None
+                score_sum, word_size = 0, 0 
                 for i, sample in enumerate(samples):
                     sample = self._prepare_sample(sample)
                     out, pad_mask, trg_len = self.data_actor(sample)
@@ -975,14 +975,11 @@ class Trainer(object):
                     normed_data_score.append(torch.exp(out.data).masked_fill_(pad_mask, 0.))
                     e_size = sample['nsentences']
                     example_size.append(e_size)
-                    #if i == 0:
-                    #    score_sum, word_size = normed_data_score[-1].sum().item(), trg_len.sum().item()
-                    #else:
-                    #    score_sum = score_sum + normed_data_score[-1].sum().item()
-                    #    word_size = word_size + trg_len.sum().item()
+                    score_sum = score_sum + normed_data_score[-1].sum().item()
+                    word_size = word_size + trg_len.sum().item()
                 for i, out in enumerate(normed_data_score):
-                    #normed_data_score.append(out.data / score_sum * word_size)
-                    normed_data_score.append(out.data)
+                    normed_data_score[i] = (out.data / score_sum * word_size)
+                    #normed_data_score.append(out.data)
                 #print(normed_data_score)
             else:
                 for i, sample in enumerate(samples):
@@ -1239,6 +1236,7 @@ class Trainer(object):
                 )
                 #reward = 1./eta * (loss_data - cached_loss[i]) * self.optimizer.get_lr() 
                 reward = (loss_data - cached_loss[i]) * self.optimizer.get_lr()
+                reward = reward.view(sample['nsentences'], -1)
                 if self.args.baseline:
                     #print(reward.data)
                     self.baseline = self.baseline - 0.001 * (self.baseline - (reward.sum()/reward.size(0)).item() )
