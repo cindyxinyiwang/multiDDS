@@ -410,7 +410,7 @@ class MultilingualTranslationTask(FairseqTask):
             # TODO make summing of the sample sizes configurable
             agg_sample_size += sample_size
             agg_logging_output[lang_pair] = logging_output
-        return agg_loss, agg_sample_size, agg_logging_output
+        return agg_loss, agg_sample_size, agg_logging_output, nll_loss_data
 
     def valid_step(self, sample, model, criterion):
         model.eval()

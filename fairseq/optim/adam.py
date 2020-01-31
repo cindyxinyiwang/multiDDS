@@ -83,6 +83,7 @@ class Adam(torch.optim.Optimizer):
 
     def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
                  weight_decay=0, amsgrad=False):
+        self.betas = betas
         defaults = dict(lr=lr, betas=betas, eps=eps,
                         weight_decay=weight_decay, amsgrad=amsgrad)
         super(Adam, self).__init__(params, defaults)
@@ -152,7 +153,7 @@ class Adam(torch.optim.Optimizer):
                 bias_correction1 = 1 - beta1 ** state['step']
                 bias_correction2 = 1 - beta2 ** state['step']
                 step_size = group['lr'] * math.sqrt(bias_correction2) / bias_correction1
-
+                self.step_size = step_size
                 if group['weight_decay'] != 0:
                     p_data_fp32.add_(-group['weight_decay'] * group['lr'], p_data_fp32)
 

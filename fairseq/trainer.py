@@ -78,12 +78,12 @@ class Trainer(object):
                     self.data_actor.append(BaseActor(args, len(langs)))
                     if self.cuda:
                         self.data_actor[-1].cuda()
-                    self.data_optimizer.append(torch.optim.Adam([p for p in self.data_actor[-1].parameters() if p.requires_grad], lr=self.args.data_actor_lr))
+                    self.data_optimizer.append(torch.optim.Adam([p for p in self.data_actor[-1].parameters() if p.requires_grad], lr=self.args.data_actor_lr[0]))
             else:
                 self.data_actor = BaseActor(args, len(langs))
                 if self.cuda:
                     self.data_actor = self.data_actor.cuda()
-                self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
+                self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr[0])
         elif self.args.data_actor == 'ave_emb':
             if self.args.data_actor_model_embed:
                 self.data_actor = AveEmbActor(args, task, emb=self._model.embed_tokens)
@@ -92,14 +92,14 @@ class Trainer(object):
             if self.cuda:
                 self.data_actor = self.data_actor.cuda()
             if not args.data_actor_embed_grad:
-                self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.project_out.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
+                self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.project_out.parameters() if p.requires_grad], lr=self.args.data_actor_lr[0])
             else:
-                self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
+                self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr[0])
         elif self.args.data_actor == 'lan':
             self.data_actor = LanguageActor(args, len(self.args.lang_pairs), optimize_emb=args.data_actor_embed_grad)
             if self.cuda:
                 self.data_actor = self.data_actor.cuda()
-            self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
+            self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr[0])
         elif self.args.data_actor == 'transformer':
             self.data_actor = TransformerActor(args, task, model)
             if self.cuda:
@@ -139,13 +139,14 @@ class Trainer(object):
             )[0]
             self.dev_itr.next_epoch_itr(shuffle=True)
         
-        self.baseline = None
+        self.baseline = 0
         if args.language_weight:
             self.language_weight = np.array([float(w) for w in args.language_weight.split(",")]).reshape(-1, 1) 
         else:
             self.language_weight = None
         self.valid_losses = {}
-
+        if args.proj_lan_id is not None:
+            self.args.proj_lan_id = [int(w) for w in args.proj_lan_id.split(",")] 
 
     def init_meters(self, args):
         self.meters = OrderedDict()
@@ -456,7 +457,7 @@ class Trainer(object):
             for j, train_key in enumerate(self.task.dataset('train').datasets.keys()):
                 train_sample = self.task.dataset('train').get_sample_with_key(train_key)
                 train_sample = self._prepare_sample(train_sample)
-                loss, sample_size, logging_output = self.task.train_step(
+                loss, sample_size, logging_output, _ = self.task.train_step(
                                         train_sample, self.model, self.criterion, self.optimizer)
                 train_losses[j] += loss
                 train_ntoks[j] += list(logging_output.values())[0]['ntokens']
@@ -472,7 +473,7 @@ class Trainer(object):
                     sample = self.task.dataset('valid').get_sample_with_key(valid_key)
                     sample = self._prepare_sample(sample)
                     # calculate sim
-                    loss, sample_size, logging_output = self.task.train_step(
+                    loss, sample_size, logging_output, _ = self.task.train_step(
                                             sample, self.model, self.criterion, self.optimizer)
                     valid_losses[i] += loss
                     valid_ntoks[i] += list(logging_output.values())[0]['ntokens']
@@ -657,7 +658,7 @@ class Trainer(object):
                 #for _ in range(self.args.loss_steps):
                 sample = self.task.dataset('train').get_sample_with_key(key)
                 sample = self._prepare_sample(sample)
-                loss, sample_size, logging_output = self.task.train_step(
+                loss, sample_size, logging_output, _ = self.task.train_step(
                                         sample, self.model, self.criterion, self.optimizer)
                 self.optimizer.save_train_grad_id(i)
                 self.zero_grad()
@@ -666,7 +667,7 @@ class Trainer(object):
                     valid_sample = self.task.dataset('valid').get_sample_with_key(valid_key)
                     valid_sample = self._prepare_sample(valid_sample)
                     # calculate sim
-                    loss, sample_size, logging_output = self.task.train_step(
+                    loss, sample_size, logging_output, _ = self.task.train_step(
                                             valid_sample, self.model, self.criterion, self.optimizer)
                     valid_samples.append(valid_sample)
                 sim, cur_cosine_norm, prev_cosine_norm = self.optimizer.get_grad_sim_id(i, self.args.grad_sim)
@@ -676,7 +677,7 @@ class Trainer(object):
                 # record new dds for logging
                 cur_sim_list, cur_norm_list = [], []
                 for j, valid_sample in enumerate(valid_samples):
-                    loss, sample_size, logging_output = self.task.train_step(
+                    loss, sample_size, logging_output, _ = self.task.train_step(
                                             valid_sample, self.model, self.criterion, self.optimizer)
                     sim, cur_cosine_norm, prev_cosine_norm = self.optimizer.get_grad_sim_id(i, self.args_grad_sim)
                     cur_sim_list.append(sim)
@@ -705,7 +706,7 @@ class Trainer(object):
                     #for _ in range(self.args.loss_steps):
                     sample = self.task.dataset('train').get_sample_with_key(key)
                     sample = self._prepare_sample(sample)
-                    loss, sample_size, logging_output = self.task.train_step(
+                    loss, sample_size, logging_output, _ = self.task.train_step(
                                             sample, self.model, self.criterion, optimizer)
                     optimizer.save_train_grad_t0()
                     self.zero_grad()
@@ -715,7 +716,7 @@ class Trainer(object):
                         valid_sample = self.task.dataset('valid').get_sample_with_key(valid_key)
                         valid_sample = self._prepare_sample(valid_sample)
                         # calculate sim
-                        loss, sample_size, logging_output = self.task.train_step(
+                        loss, sample_size, logging_output, _ = self.task.train_step(
                                                 valid_sample, self.model, self.criterion, optimizer)
                         valid_samples.append(valid_sample)
                     sim, cur_cosine_norm, prev_cosine_norm = optimizer.get_grad_sim(self.args.grad_sim)
@@ -725,7 +726,7 @@ class Trainer(object):
                     # record new dds for logging
                     cur_sim_list, cur_norm_list = [], []
                     for i, valid_sample in enumerate(valid_samples):
-                        loss, sample_size, logging_output = self.task.train_step(
+                        loss, sample_size, logging_output, _ = self.task.train_step(
                                                 valid_sample, self.model, self.criterion, optimizer)
                         sim, cur_cosine_norm, prev_cosine_norm = optimizer.get_grad_sim(self.args.grad_sim)
                         cur_sim_list.append(sim)
@@ -843,7 +844,7 @@ class Trainer(object):
                     print("pretrained_sim", sim_list)
     
                 for p in data_optimizer.param_groups:
-                    p['lr'] = self.args.data_actor_lr
+                    p['lr'] = self.args.data_actor_lr[0]
             elif self.args.data_actor == 'lan':
                 if self.args.pretrain_type == "lan_dist":
                     target = torch.FloatTensor(args.lan_dists).view(-1, 1)
@@ -875,7 +876,7 @@ class Trainer(object):
                     print("pretrained_sim", sim_list)
     
                 for p in self.data_optimizer.param_groups:
-                    p['lr'] = self.args.data_actor_lr
+                    p['lr'] = self.args.data_actor_lr[0]
 
     def get_train_iterator(self, epoch, combine=True, filtered_maxpos_indices=None):
         """Return an EpochBatchIterator over the training set for a given epoch."""
@@ -937,41 +938,26 @@ class Trainer(object):
             self.meters['train_wall'].start()
 
         if self.args.proj_grad:
-            if self.args.sample_proj_count == 1:
-                train_lan_id_i = self.task.langpair2id[list(samples[0].keys())[0]]
-                train_lan_id_j = train_lan_id_i
-                while train_lan_id_j == train_lan_id_i:
-                    train_lan_id_j = random.randint(0, len(samples[0].keys()))
-                lang_pair_j = self.task.lang_pairs[train_lan_id_j]
-                valid_sample = self.task.dataset('train').get_sample_with_key(lang_pair_j)
-                valid_sample = self._prepare_sample(valid_sample)
-                # calculate sim
-                loss, sample_size, logging_output = self.task.train_step(
-                                        valid_sample, self.model, self.criterion, self.optimizer)
-                if self.args.layerwise_dds:
-                    for optimizer in self.optimizer:
-                        optimizer.save_train_grad_t0()
-                else:
-                    self.optimizer.save_train_grad_t0()
-                self.zero_grad()
+            if self.args.proj_lan_id:
+                task_ids = self.args.proj_lan_id
             else:
                 train_lan_id_i = self.task.langpair2id[list(samples[0].keys())[0]]
                 task_ids = [i for i in range(len(self.task.lang_pairs))]
                 task_ids.remove(train_lan_id_i)
                 random.shuffle(task_ids)
                 task_ids = task_ids[:self.args.sample_proj_count]
-                for idx in task_ids:
-                    valid_sample = self.task.dataset('train').get_sample_with_key(self.task.lang_pairs[idx])
-                    valid_sample = self._prepare_sample(valid_sample)
-                    # calculate sim
-                    loss, sample_size, logging_output = self.task.train_step(
-                                            valid_sample, self.model, self.criterion, self.optimizer)
-                    if self.args.layerwise_dds:
-                        for optimizer in self.optimizer:
-                            optimizer.save_proj_grad_id(idx)
-                    else:
-                        self.optimizer.save_proj_grad_id(idx)
-                    self.zero_grad()
+            for idx in task_ids:
+                valid_sample = self.task.dataset('train').get_sample_with_key(self.task.lang_pairs[idx])
+                valid_sample = self._prepare_sample(valid_sample)
+                # calculate sim
+                loss, sample_size, logging_output, _ = self.task.train_step(
+                                        valid_sample, self.model, self.criterion, self.optimizer)
+                if self.args.layerwise_dds:
+                    for optimizer in self.optimizer:
+                        optimizer.save_proj_grad_id(idx)
+                else:
+                    self.optimizer.save_proj_grad_id(idx)
+                self.zero_grad()
 
         if self.args.data_actor_step_update and update_actor:
             self.optimizer.clone_param()
@@ -980,11 +966,39 @@ class Trainer(object):
             cached_loss = []
             trained_sample_idx = []
             example_size = []
-            for i, sample in enumerate(samples):
-                sample = self._prepare_sample(sample)
-                data_actor_out.append(self.data_actor(sample))
-                example_size = sample['nsentences']
-                normed_data_score.append(torch.softmax(data_actor_out[-1], dim=0) * example_size)
+            if self.args.out_score_type == "word_score":
+                score_sum, word_size = None, None
+                for i, sample in enumerate(samples):
+                    sample = self._prepare_sample(sample)
+                    out, pad_mask, trg_len = self.data_actor(sample)
+                    data_actor_out.append(out)
+                    normed_data_score.append(torch.exp(out.data).masked_fill_(pad_mask, 0.))
+                    e_size = sample['nsentences']
+                    example_size.append(e_size)
+                    #if i == 0:
+                    #    score_sum, word_size = normed_data_score[-1].sum().item(), trg_len.sum().item()
+                    #else:
+                    #    score_sum = score_sum + normed_data_score[-1].sum().item()
+                    #    word_size = word_size + trg_len.sum().item()
+                for i, out in enumerate(normed_data_score):
+                    #normed_data_score.append(out.data / score_sum * word_size)
+                    normed_data_score.append(out.data)
+                #print(normed_data_score)
+            else:
+                for i, sample in enumerate(samples):
+                    sample = self._prepare_sample(sample)
+                    data_actor_out.append(self.data_actor(sample))
+                    e_size = sample['nsentences']
+                    example_size.append(e_size)
+                    if self.args.out_score_type == "tanh":
+                        normed_data_score.append(torch.softmax(data_actor_out[-1], dim=0) * e_size)
+                if self.args.out_score_type == "sigmoid":
+                    total_example_size = sum(example_size)
+                    data_score_sum = data_actor_out[0].sum()
+                    for out in data_actor_out[1:]:
+                        data_score_sum = data_score_sum + out.sum()
+                    for out in data_actor_out:
+                        normed_data_score.append(out/data_score_sum * total_example_size)
                 #example_size.append(sample['nsentences'])
             #normed_score = torch.softmax(torch.cat(data_actor_out, dim=0), dim=0) * sum(example_size)
             #start = 0
@@ -1136,19 +1150,12 @@ class Trainer(object):
                     print(optim_weights)
 
             if self.args.proj_grad:
-                if self.args.sample_proj_count == 1:
+                for idx in task_ids:
                     if self.args.layerwise_dds:
                         for optimizer in self.optimizer:
-                            optimizer.proj_grad()
+                            optimizer.proj_grad_id(idx)
                     else:
-                        self.optimizer.proj_grad()
-                else:
-                    for idx in task_ids:
-                        if self.args.layerwise_dds:
-                            for optimizer in self.optimizer:
-                                optimizer.proj_grad_id(idx)
-                        else:
-                            self.optimizer.proj_grad_id(idx)
+                        self.optimizer.proj_grad_id(idx)
 
             # normalize grads by sample size
             if sample_size > 0:
@@ -1214,6 +1221,7 @@ class Trainer(object):
                 valid_sample = self._prepare_sample(valid_sample)
                 _loss, _sample_size, _logging_output, _ = self.task.train_step(
                                         valid_sample, self.model, self.criterion, self.optimizer)
+                self.optimizer.multiply_grads(1. / float(_sample_size))
                 self.optimizer.save_dev_grad()
                 break
             self.zero_grad()
@@ -1229,8 +1237,18 @@ class Trainer(object):
                     ignore_grad=True, 
                     loss_copy=True,
                 )
-                reward = 1./eta * (loss_data - cached_loss[i]) * self.optimizer.get_lr()
-                loss = -torch.nn.functional.log_softmax(data_actor_out[i], dim=0) * reward.data
+                #reward = 1./eta * (loss_data - cached_loss[i]) * self.optimizer.get_lr() 
+                reward = (loss_data - cached_loss[i]) * self.optimizer.get_lr()
+                if self.args.baseline:
+                    #print(reward.data)
+                    self.baseline = self.baseline - 0.001 * (self.baseline - (reward.sum()/reward.size(0)).item() )
+                    #print("baseline:", self.baseline)
+                if self.args.out_score_type == "tanh": 
+                    loss = -torch.nn.functional.log_softmax(data_actor_out[i], dim=0) * (reward.data - self.baseline)
+                elif self.args.out_score_type == "sigmoid":
+                    loss = -torch.log(data_actor_out[i]) * (reward.data - self.baseline)
+                elif self.args.out_score_type == "word_score":
+                    loss = -data_actor_out[i] * (reward.data - self.baseline)
                 loss.div_(loss_data.size(0))
                 loss.sum().backward()
             self.optimizer.switch_param(clear_cache=True)

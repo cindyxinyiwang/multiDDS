@@ -216,7 +216,27 @@ class TransformerActor(torch.nn.Module):
     def forward(self, sample):
         # B X L X dim
         #print(self.model.extract_features(**sample['net_input']))
-        net_output, extra_state = self.model.extract_features(**sample['net_input'])
+        if self.args.data_actor_feature_postprocess == 'last':
+            orig_data = sample['net_input']['prev_output_tokens']
+            prev_output_tokens = torch.cat([orig_data, torch.tensor([[self.tgt_dict.bos()]], dtype=orig_data.dtype, device=orig_data.device).repeat(orig_data.size(0), 1)],dim=1)
+        
+            net_output, extra_state = self.model.extract_features(sample['net_input']['src_tokens'], sample['net_input']['src_lengths'], prev_output_tokens)
+        else:
+            if self.args.out_score_type == 'word_score':
+                net_output, extra_state = self.model(**sample['net_input'])
+                #lprobs = self.model.get_normalized_probs(net_output, log_probs=True)
+                lprobs = torch.nn.functional.log_softmax(net_output, dim=-1)
+                lprobs = lprobs.view(-1, lprobs.size(-1))
+                target = self.model.get_targets(sample, net_output).view(-1, 1)
+                if target.dim() == lprobs.dim() - 1:
+                    target = target.unsqueeze(-1)
+                sample_size = sample['nsentences']
+                tgt_lprobs = lprobs.gather(dim=-1, index=target).view(sample_size, -1)
+                pad_mask = (sample['target'] == self.tgt_dict.pad())
+                tgt_len = (~pad_mask).float().sum(dim=1).unsqueeze(1)
+                return tgt_lprobs, pad_mask, tgt_len
+            else:
+                net_output, extra_state = self.model.extract_features(**sample['net_input'])
         #net_output, _ = list(self.model.models.values())[0].extract_features(**sample['net_input'])
         if self.args.data_actor_feature_postprocess == 'average':
             pad_mask = (sample['target'] == self.tgt_dict.pad())
@@ -224,21 +244,30 @@ class TransformerActor(torch.nn.Module):
             # mask out the tgt embs
             net_output.masked_fill_(pad_mask.unsqueeze(2), 0)
             inp = net_output.sum(dim=1) / tgt_len
+        elif self.args.data_actor_feature_postprocess == 'word_score':
+            pass
         elif self.args.data_actor_feature_postprocess == 'tanh':
             pad_mask = (sample['target'] == self.tgt_dict.pad())
+            tgt_len = (~pad_mask).float().sum(dim=1).unsqueeze(1)
             # mask out the tgt embs
             net_output.masked_fill_(pad_mask.unsqueeze(2), 0)
-            inp = torch.tanh(net_output.sum(dim=1))
+            inp = torch.tanh(net_output.sum(dim=1) / tgt_len)
+        elif self.args.data_actor_feature_postprocess == 'last':
+            inp = net_output[:, -1, :]
         elif self.args.data_actor_feature_postprocess == 'src_tgt_tanh':
             tgt_pad_mask = (sample['target'] == self.tgt_dict.pad())
+            tgt_len = (~tgt_pad_mask).float().sum(dim=1).unsqueeze(1)
             # mask out the tgt embs
             net_output.masked_fill_(tgt_pad_mask.unsqueeze(2), 0)
-            tgt_inp = torch.tanh(net_output.sum(dim=1))
+            tgt_inp = torch.tanh(net_output.sum(dim=1) / tgt_len)
 
             src_out, src_pad_mask = extra_state['encoder_out']['encoder_out'].clone().permute(1, 0, 2), extra_state['encoder_out']['encoder_padding_mask']
             if src_pad_mask is not None:
+                src_len = (~src_pad_mask).float().sum(dim=1).unsqueeze(1)
                 src_out.masked_fill_(src_pad_mask.unsqueeze(2), 0)
-            src_inp = torch.tanh(src_out.sum(dim=1))
+            else:
+                src_len = src_out.size(0)
+            src_inp = torch.tanh(src_out.sum(dim=1) / src_len)
             
             inp = torch.cat([src_inp, tgt_inp], dim=-1)
         elif self.args.data_actor_feature_postprocess == 'src_tgt_average':
@@ -262,13 +291,12 @@ class TransformerActor(torch.nn.Module):
             exit(0)
         # B x 1
  
-        proj = self.project_out(inp)
 
         if self.out_score_type == 'sigmoid':
+            proj = self.project_out(inp)
             score = torch.sigmoid(proj)
-        elif self.out_score_type == 'exp':
-            score = torch.exp(torch.tanh(proj))
         elif self.out_score_type == 'tanh':
+            proj = self.project_out(inp)
             score = torch.tanh(proj) * self.args.tanh_constant
         return score 
 

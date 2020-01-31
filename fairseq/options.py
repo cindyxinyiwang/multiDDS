@@ -241,6 +241,7 @@ def get_parser(desc, default_task='translation'):
                         help='whether to valid on bleu score')
     parser.add_argument('--grad-sim', type=str, default='cosine',
                         help='[cosine|dot_prod]')
+    parser.add_argument('--dev-grad-eta', type=float, default=0.0001)
     parser.add_argument('--proj-grad-sim', type=str, default='cosine',
                         help='[cosine|dot_prod]')
     parser.add_argument('--loss-steps', type=int, default=1,
@@ -302,6 +303,7 @@ def get_parser(desc, default_task='translation'):
     parser.add_argument('--dds-no-neg-reward', action='store_true',
                         help='set the negative reward for DDS to 0')
     parser.add_argument('--proj-grad', action='store_true')
+    parser.add_argument('--proj-lan-id', type=str, default=None)
     parser.add_argument('--paramwise-proj-grad', action='store_true')
     parser.add_argument('--sample-proj-count', type=int, default=1, help='number of tasks to sample for projection')
     parser.add_argument('--optim-weight-softmax-tau', type=float, default=-1, help='a float between (0, 1], smaller value makes weight more peaky')
