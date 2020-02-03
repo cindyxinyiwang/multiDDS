@@ -174,33 +174,34 @@ class TransformerActor(torch.nn.Module):
         super(TransformerActor, self).__init__()
         self.tgt_dict = task.target_dictionary
         self.args = args
-        #args = copy.deepcopy(args)
-        #args.arch = 'transformer'
-        #args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 128)
-        #args.encoder_ffn_embed_dim = getattr(args, 'encoder_ffn_embed_dim', 512)
-        #args.encoder_layers = getattr(args, 'encoder_layers', 4)
-        #args.encoder_attention_heads = getattr(args, 'encoder_attention_heads', 3)
-        #args.encoder_normalize_before = getattr(args, 'encoder_normalize_before', True)
-        #args.encoder_learned_pos = getattr(args, 'encoder_learned_pos', False)
-        #args.decoder_embed_path = getattr(args, 'decoder_embed_path', None)
-        #args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', args.encoder_embed_dim)
-        #args.decoder_ffn_embed_dim = getattr(args, 'decoder_ffn_embed_dim', args.encoder_ffn_embed_dim)
-        #args.decoder_layers = getattr(args, 'decoder_layers', 4)
-        #args.decoder_attention_heads = getattr(args, 'decoder_attention_heads', 3)
-        #args.decoder_normalize_before = getattr(args, 'decoder_normalize_before', True)
-        #args.decoder_learned_pos = getattr(args, 'decoder_learned_pos', False)
-        #args.attention_dropout = getattr(args, 'attention_dropout', 0.)
-        #args.activation_dropout = getattr(args, 'activation_dropout', 0.)
-        #args.activation_fn = getattr(args, 'activation_fn', 'relu')
-        #args.dropout = getattr(args, 'dropout', 0.1)
-        #args.adaptive_softmax_cutoff = getattr(args, 'adaptive_softmax_cutoff', None)
-        #args.adaptive_softmax_dropout = getattr(args, 'adaptive_softmax_dropout', 0)
-        #args.share_decoder_input_output_embed = getattr(args, 'share_decoder_input_output_embed', False)
-        #args.share_all_embeddings = getattr(args, 'share_all_embeddings', False)
-        #args.no_token_positional_embeddings = getattr(args, 'no_token_positional_embeddings', False)
-        #args.adaptive_input = getattr(args, 'adaptive_input', False)
-        #args.decoder_output_dim = getattr(args, 'decoder_output_dim', args.decoder_embed_dim)
-        #args.decoder_input_dim = getattr(args, 'decoder_input_dim', args.decoder_embed_dim)
+
+        args = copy.deepcopy(args)
+        args.arch = 'transformer'
+        args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 128)
+        args.encoder_ffn_embed_dim = getattr(args, 'encoder_ffn_embed_dim', 512)
+        args.encoder_layers = getattr(args, 'encoder_layers', 4)
+        args.encoder_attention_heads = getattr(args, 'encoder_attention_heads', 3)
+        args.encoder_normalize_before = getattr(args, 'encoder_normalize_before', True)
+        args.encoder_learned_pos = getattr(args, 'encoder_learned_pos', False)
+        args.decoder_embed_path = getattr(args, 'decoder_embed_path', None)
+        args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', args.encoder_embed_dim)
+        args.decoder_ffn_embed_dim = getattr(args, 'decoder_ffn_embed_dim', args.encoder_ffn_embed_dim)
+        args.decoder_layers = getattr(args, 'decoder_layers', 4)
+        args.decoder_attention_heads = getattr(args, 'decoder_attention_heads', 3)
+        args.decoder_normalize_before = getattr(args, 'decoder_normalize_before', True)
+        args.decoder_learned_pos = getattr(args, 'decoder_learned_pos', False)
+        args.attention_dropout = getattr(args, 'attention_dropout', 0.)
+        args.activation_dropout = getattr(args, 'activation_dropout', 0.)
+        args.activation_fn = getattr(args, 'activation_fn', 'relu')
+        args.dropout = getattr(args, 'dropout', 0.1)
+        args.adaptive_softmax_cutoff = getattr(args, 'adaptive_softmax_cutoff', None)
+        args.adaptive_softmax_dropout = getattr(args, 'adaptive_softmax_dropout', 0)
+        args.share_decoder_input_output_embed = getattr(args, 'share_decoder_input_output_embed', False)
+        args.share_all_embeddings = getattr(args, 'share_all_embeddings', False)
+        args.no_token_positional_embeddings = getattr(args, 'no_token_positional_embeddings', False)
+        args.adaptive_input = getattr(args, 'adaptive_input', False)
+        args.decoder_output_dim = getattr(args, 'decoder_output_dim', args.decoder_embed_dim)
+        args.decoder_input_dim = getattr(args, 'decoder_input_dim', args.decoder_embed_dim)
 
         if self.args.data_actor_share_model:
             self.model = model
@@ -235,6 +236,23 @@ class TransformerActor(torch.nn.Module):
                 pad_mask = (sample['target'] == self.tgt_dict.pad())
                 tgt_len = (~pad_mask).float().sum(dim=1).unsqueeze(1)
                 return tgt_lprobs, pad_mask, tgt_len
+            elif self.args.out_score_type == 'proj_word_score':
+                net_output, extra_state = self.model.extract_features(**sample['net_input'])
+                proj = self.project_out(net_output).squeeze(2)
+                score = torch.sigmoid(proj)
+
+                proj_out = self.model.decoder.output_layer(net_output)
+                #lprobs = self.model.get_normalized_probs(net_output, log_probs=True)
+                lprobs = torch.nn.functional.log_softmax(proj_out, dim=-1)
+                lprobs = lprobs.view(-1, lprobs.size(-1))
+                target = self.model.get_targets(sample, net_output).view(-1, 1)
+                if target.dim() == lprobs.dim() - 1:
+                    target = target.unsqueeze(-1)
+                sample_size = sample['nsentences']
+                tgt_lprobs = lprobs.gather(dim=-1, index=target).view(sample_size, -1)
+                pad_mask = (sample['target'] == self.tgt_dict.pad())
+                tgt_len = (~pad_mask).float().sum(dim=1).unsqueeze(1)
+                return score, pad_mask, tgt_len, lprobs
             else:
                 net_output, extra_state = self.model.extract_features(**sample['net_input'])
         #net_output, _ = list(self.model.models.values())[0].extract_features(**sample['net_input'])
@@ -244,8 +262,6 @@ class TransformerActor(torch.nn.Module):
             # mask out the tgt embs
             net_output.masked_fill_(pad_mask.unsqueeze(2), 0)
             inp = net_output.sum(dim=1) / tgt_len
-        elif self.args.data_actor_feature_postprocess == 'word_score':
-            pass
         elif self.args.data_actor_feature_postprocess == 'tanh':
             pad_mask = (sample['target'] == self.tgt_dict.pad())
             tgt_len = (~pad_mask).float().sum(dim=1).unsqueeze(1)

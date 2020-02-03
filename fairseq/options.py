@@ -305,6 +305,8 @@ def get_parser(desc, default_task='translation'):
     parser.add_argument('--dds-no-neg-reward', action='store_true',
                         help='set the negative reward for DDS to 0')
     parser.add_argument('--proj-grad', action='store_true')
+    parser.add_argument('--save-proj-train', action='store_true', help="whether to use saved moving avg grad to project")
+    parser.add_argument('--remove-sample-id', action='store_true', help="do not project on current language being trained")
     parser.add_argument('--proj-lan-id', type=str, default=None)
     parser.add_argument('--paramwise-proj-grad', action='store_true')
     parser.add_argument('--sample-proj-count', type=int, default=1, help='number of tasks to sample for projection')

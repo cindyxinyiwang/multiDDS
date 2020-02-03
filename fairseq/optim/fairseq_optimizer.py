@@ -115,6 +115,14 @@ class FairseqOptimizer(object):
                 state['train_grad'][i] = p.grad.data.clone()
 
     def proj_grad_id(self, i):
+        for group in self.optimizer.param_groups:
+           for p in group["params"]:
+               if p.grad is None: continue
+               state = self.optimizer.state[p]
+               if state['train_grad'][i] is None: 
+                   return
+               else:
+                   break
         if self.args.paramwise_proj_grad:
             for group in self.optimizer.param_groups:
                for p in group["params"]:
