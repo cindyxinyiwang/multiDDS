@@ -972,6 +972,8 @@ class Trainer(object):
         if self.args.data_actor_step_update and update_actor:
             self.optimizer.clone_param()
             data_actor_out = []
+            pad_masks = []
+            tgt_lens = []
             data_actor_proj_out = []
             normed_data_score = []
             cached_loss = []
@@ -983,14 +985,16 @@ class Trainer(object):
                     sample = self._prepare_sample(sample)
                     out, pad_mask, trg_len = self.data_actor(sample)
                     data_actor_out.append(out)
-                    normed_data_score.append(torch.exp(out.data*0.1).masked_fill_(pad_mask, 0.))
+                    pad_masks.append(pad_mask)
+                    #normed_data_score.append(torch.exp(out.data*0.1).masked_fill_(pad_mask, 0.))
+                    normed_data_score.append(torch.exp(out.data*self.args.exp_constant).masked_fill_(pad_mask, 0.))
                     e_size = sample['nsentences']
                     example_size.append(e_size)
                     score_sum = score_sum + normed_data_score[-1].sum().item()
-                    word_size = word_size + trg_len.sum().item()
+                    tgt_lens.append(trg_len.sum().item())
+                    word_size = word_size + tgt_lens[-1]
                 for i, out in enumerate(normed_data_score):
                     normed_data_score[i] = (out.data / score_sum * word_size)
-                    #normed_data_score.append(out.data)
                 #print(normed_data_score)
             elif self.args.out_score_type == "proj_word_score":
                 score_sum, word_size = 0, 0 
@@ -998,12 +1002,14 @@ class Trainer(object):
                     sample = self._prepare_sample(sample)
                     out, pad_mask, trg_len, proj_out = self.data_actor(sample)
                     data_actor_out.append(out)
+                    pad_masks.append(pad_mask)
                     data_actor_proj_out.append(proj_out)
                     normed_data_score.append(out.data.masked_fill_(pad_mask, 0.))
                     e_size = sample['nsentences']
                     example_size.append(e_size)
                     score_sum = score_sum + normed_data_score[-1].sum().item()
-                    word_size = word_size + trg_len.sum().item()
+                    tgt_lens.append(trg_len.sum().item())
+                    word_size = word_size + tgt_lens[-1]
                 for i, out in enumerate(normed_data_score):
                     normed_data_score[i] = (out.data / score_sum * word_size)
             else:
@@ -1238,13 +1244,17 @@ class Trainer(object):
             # get dev gradient
             if self.dev_itr.end_of_epoch():
                 self.dev_itr.next_epoch_itr(shuffle=True)
+            v_i, v_sample_size = 0, 0
             for valid_sample in self.dev_itr._cur_epoch_itr:
                 valid_sample = self._prepare_sample(valid_sample)
                 _loss, _sample_size, _logging_output, _ = self.task.train_step(
                                         valid_sample, self.model, self.criterion, self.optimizer)
-                self.optimizer.multiply_grads(1. / float(_sample_size))
-                self.optimizer.save_dev_grad()
-                break
+                v_i += 1
+                v_sample_size += _sample_size
+                if v_i > len(trained_sample_idx):
+                    break
+            self.optimizer.multiply_grads(1. / float(v_sample_size))
+            self.optimizer.save_dev_grad()
             self.zero_grad()
             # get per example reward
             #with torch.no_grad():
@@ -1258,22 +1268,27 @@ class Trainer(object):
                     ignore_grad=True, 
                     loss_copy=True,
                 )
-                #reward = 1./eta * (loss_data - cached_loss[i]) * self.optimizer.get_lr() 
-                reward = (loss_data - cached_loss[i]) * self.optimizer.get_lr()
+                reward = 1./eta * (loss_data - cached_loss[i]) * self.optimizer.get_lr() 
+                #reward = (loss_data - cached_loss[i]) * self.optimizer.get_lr()
                 reward = reward.view(sample['nsentences'], -1)
+                reward.masked_fill_(pad_masks[idx], 0.)
                 if self.args.baseline:
                     #print(reward.data)
-                    self.baseline = self.baseline - 0.001 * (self.baseline - (reward.sum()/reward.size(0)).item() )
+                    tgt_len = tgt_lens[idx]
+                    self.baseline = self.baseline - 0.001 * (self.baseline - (reward.sum()/tgt_len).item() )
                     #print("baseline:", self.baseline)
                 if self.args.out_score_type == "tanh": 
                     loss = -torch.nn.functional.log_softmax(data_actor_out[idx], dim=0) * (reward.data - self.baseline)
                 elif self.args.out_score_type == "sigmoid":
                     loss = -torch.log(1e-10 + data_actor_out[idx]) * (reward.data - self.baseline)
                 elif self.args.out_score_type == "word_score":
+                    #loss = (-data_actor_out[idx] * (reward.data - self.baseline).masked_fill_(pad_masks[idx], 0.)) * (1-self.args.data_loss_lambda) + (-data_actor_out[idx].masked_fill_(pad_masks[idx], 0.)) * self.args.data_loss_lambda
                     loss = (-data_actor_out[idx] * (reward.data - self.baseline)) * (1-self.args.data_loss_lambda) + (-data_actor_out[idx]) * self.args.data_loss_lambda
                 elif self.args.out_score_type == "proj_word_score":
-                    loss = (-torch.log(1e-10+data_actor_out[idx]) * (reward.data - self.baseline)).sum() * (1-self.args.data_loss_lambda) + (-data_actor_proj_out[idx]).sum() * self.args.data_loss_lambda
+                    #loss = (-torch.log(1e-10+data_actor_out[idx]) * (reward.data - self.baseline).masked_fill_(pad_masks[idx], 0.)).sum() * (1-self.args.data_loss_lambda) + (-data_actor_proj_out[idx].masked_fill_(pad_masks[idx], 0.)).sum() * self.args.data_loss_lambda
+                    loss = (-torch.log(1e-10+data_actor_out[idx]) * (reward.data - self.baseline)) * (1-self.args.data_loss_lambda) + (-data_actor_proj_out[idx]) * self.args.data_loss_lambda
                 loss.div_(loss_data.size(0))
+                loss = loss[~pad_masks[idx]]
                 loss.sum().backward()
             self.optimizer.switch_param(clear_cache=True)
 
@@ -1393,8 +1408,9 @@ class Trainer(object):
     def lr_step_update(self):
         """Update the learning rate after each update."""
         # also update the lambda if a schedule is set
-        #if self.get_num_updates() < self.args.data_loss_lambda_warmup_steps:
-        #    self.args.data_loss_lambda = 
+        if self.get_num_updates() <= self.args.data_loss_lambda_warmup_steps:
+            self.args.data_loss_lambda = self.args.data_loss_lambda_init + (self.args.data_loss_lambda_final-self.args.data_loss_lambda_init)*self.get_num_updates()/self.args.data_loss_lambda_warmup_steps
+ 
         if self.args.layerwise_dds:
             for lr_scheduler in self.lr_scheduler:
                 ret = lr_scheduler.step_update(self.get_num_updates())

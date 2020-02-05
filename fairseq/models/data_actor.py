@@ -252,7 +252,7 @@ class TransformerActor(torch.nn.Module):
                 tgt_lprobs = lprobs.gather(dim=-1, index=target).view(sample_size, -1)
                 pad_mask = (sample['target'] == self.tgt_dict.pad())
                 tgt_len = (~pad_mask).float().sum(dim=1).unsqueeze(1)
-                return score, pad_mask, tgt_len, lprobs
+                return score, pad_mask, tgt_len, tgt_lprobs
             else:
                 net_output, extra_state = self.model.extract_features(**sample['net_input'])
         #net_output, _ = list(self.model.models.values())[0].extract_features(**sample['net_input'])

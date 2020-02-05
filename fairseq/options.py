@@ -231,11 +231,16 @@ def get_parser(desc, default_task='translation'):
                         help='[0|1] whether to optimize model embedding')
     parser.add_argument('--data-loss-lambda', type=float, default=0,
                         help='the percentage of using actual data loss')
+    parser.add_argument('--data-loss-lambda-warmup-steps', type=int, default=-1)
+    parser.add_argument('--data-loss-lambda-init', type=float, default=-1)
+    parser.add_argument('--data-loss-lambda-final', type=float, default=-1)
     parser.add_argument('--out-score-type', type=str, default='sigmoid',
                         help='[sigmoid|exp]')
     parser.add_argument('--data-actor-share-model', action='store_true',
                         help='whether to allow data actor and main model to share the same parameter')
     parser.add_argument('--tanh-constant', type=float, default=10,
+                        help='the constant multiplier for tanh output')
+    parser.add_argument('--exp-constant', type=float, default=0.1,
                         help='the constant multiplier for tanh output')
     parser.add_argument('--eval-bleu', action='store_true',
                         help='whether to valid on bleu score')
