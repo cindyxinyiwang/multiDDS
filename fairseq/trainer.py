@@ -1174,8 +1174,24 @@ class Trainer(object):
                     else:
                         optim_weights = np.array(optim_weights) / optim_weights.sum() * self.cur_data_actor_probs.shape[0]
                     if self.args.optim_weight_above_one:
-                        optim_weights[optim_weights < 1] = 1. 
-                    print(optim_weights)
+                        optim_weights[optim_weights < 1] = 1.
+
+            if self.args.train_proj_grad:
+               if self.args.train_proj_grad_sum:
+                   task_ids = [j for j in range(len(self.task.lang_pairs))]
+                   for idx in task_ids:
+                       # proj current summed grad over idx
+                       self.optimizer.proj_grad_id(idx)
+               else:
+                   for i in range(len(self.task.lang_pairs)):
+                       task_ids = [j for j in range(len(self.task.lang_pairs))]
+                       task_ids.remove(i)
+                       random.shuffle(task_ids)
+                       for idx in task_ids:
+                           self.optimizer.proj_grad_id(i, src_idx=idx)
+                   self.optimizer.combine_proj_grad()
+               for i in range(len(self.task.lang_pairs)):
+                   self.optimizer.reset_train_grad_id(i)
 
             if self.args.proj_grad:
                 for idx in task_ids:

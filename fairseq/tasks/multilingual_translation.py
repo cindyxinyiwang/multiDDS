@@ -406,6 +406,9 @@ class MultilingualTranslationTask(FairseqTask):
                     optimizer[-1].backward(loss)
                 else:
                     optimizer.backward(loss)
+            if self.args.train_proj_grad:
+                lang_id = self.langpair2id[lang_pair]
+                optimizer.save_train_grad_id(lang_id)
             agg_loss += loss.detach().item()
             # TODO make summing of the sample sizes configurable
             agg_sample_size += sample_size
