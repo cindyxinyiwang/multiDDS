@@ -341,6 +341,9 @@ class Trainer(object):
                     if self.args.layerwise_dds:
                         for i, d in enumerate(self.data_actor):
                             d.load_state_dict(state['data_actor'][i])
+                    elif self.args.load_model_as_data_actor:
+                        print("loading model as the data actor...")
+                        self.data_actor.load_state_dict(state['model'])
                     else:
                         self.data_actor.load_state_dict(state['data_actor'])
         else:
