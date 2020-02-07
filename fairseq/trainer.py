@@ -104,7 +104,10 @@ class Trainer(object):
             self.data_actor = TransformerActor(args, task, model)
             if self.cuda:
                 self.data_actor = self.data_actor.cuda()
-            params = [p for p in self.data_actor.parameters() if p.requires_grad]
+            if args.data_actor_proj_grad_only:
+                params = [p for p in self.data_actor.project_out.parameters() if p.requires_grad]
+            else:
+                params = [p for p in self.data_actor.parameters() if p.requires_grad]
             data_actor_args = copy.deepcopy(args)
             #data_actor_args.lr = args.data_actor_lr
             self.data_optimizer = optim.build_optimizer(data_actor_args, params)
@@ -1307,7 +1310,12 @@ class Trainer(object):
                 elif self.args.out_score_type == "proj_word_score":
                     #loss = (-torch.log(1e-10+data_actor_out[idx]) * (reward.data - self.baseline).masked_fill_(pad_masks[idx], 0.)).sum() * (1-self.args.data_loss_lambda) + (-data_actor_proj_out[idx].masked_fill_(pad_masks[idx], 0.)).sum() * self.args.data_loss_lambda
                     #loss = (-torch.log(1e-10+data_actor_out[idx]) * (reward.data - self.baseline)) * (1-self.args.data_loss_lambda) + (-data_actor_proj_out[idx]) * self.args.data_loss_lambda
+<<<<<<< HEAD
                     loss = -data_actor_out[idx] * (reward.data - self.baseline)
+=======
+                    loss = (-data_actor_out[idx] * (reward.data - self.baseline)) * (1-self.args.data_loss_lambda) + (-data_actor_proj_out[idx]) * self.args.data_loss_lambda
+                loss.div_(loss_data.size(0))
+>>>>>>> c75209695d11456078aa949d059c75622bcaa38b
                 loss = loss[~pad_masks[idx]]
                 loss.div_(tgt_len)
                 loss.sum().backward()

@@ -185,6 +185,8 @@ class TranslationTask(FairseqTask):
         if not hasattr(self.args, "source_tau"): self.args.source_tau = -1
         if not hasattr(self.args, "target_tau"): self.args.target_tau = -1
 
+        if not hasattr(self.args, 'source_tau'): self.args.source_tau = -1
+        if not hasattr(self.args, 'target_tau'): self.args.target_tau = -1
         self.datasets[split] = load_langpair_dataset(
             data_path, split, src, self.src_dict, tgt, self.tgt_dict,
             combine=combine, dataset_impl=self.args.dataset_impl,

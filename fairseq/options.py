@@ -248,6 +248,7 @@ def get_parser(desc, default_task='translation'):
                         help='whether to valid on bleu score')
     parser.add_argument('--only-load-data-actor', action='store_true',
                         help='whether to valid on bleu score')
+    parser.add_argument('--data-actor-proj-grad-only', action='store_true')
     parser.add_argument('--load-model-as-data-actor', action='store_true', help='use the model as data actor')
     parser.add_argument('--grad-sim', type=str, default='cosine',
                         help='[cosine|dot_prod]')
