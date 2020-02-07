@@ -1,6 +1,7 @@
 import torch
 import copy
 import fairseq.models 
+import torch.nn as nn
 
 class BaseActor(torch.nn.Module):
   def __init__(self, args, lan_size):
@@ -207,11 +208,18 @@ class TransformerActor(torch.nn.Module):
             self.model = model
         else:
             self.model = fairseq.models.build_model(args, task)
-        
+
+        if self.args.data_actor_proj_linear_bias is not None:
+            bias = True
+        else:
+            bias = False
         if 'src_tgt' in self.args.data_actor_feature_postprocess:
-            self.project_out = torch.nn.Linear(args.decoder_output_dim + args.decoder_output_dim, 1)
+            self.project_out = torch.nn.Linear(args.decoder_output_dim + args.decoder_output_dim, 1, bias)
         else: 
-            self.project_out = torch.nn.Linear(args.decoder_output_dim, 1)
+            self.project_out = torch.nn.Linear(args.decoder_output_dim, 1, bias)
+        nn.init.xavier_uniform_(self.project_out.weight)
+        if bias is not None:
+            nn.init.constant_(self.project_out.bias, self.args.data_actor_proj_linear_bias)
         self.out_score_type = args.out_score_type
         
     def forward(self, sample):
@@ -241,15 +249,16 @@ class TransformerActor(torch.nn.Module):
                 proj = self.project_out(net_output).squeeze(2)
                 score = torch.sigmoid(proj)
 
-                proj_out = self.model.decoder.output_layer(net_output)
-                #lprobs = self.model.get_normalized_probs(net_output, log_probs=True)
-                lprobs = torch.nn.functional.log_softmax(proj_out, dim=-1)
-                lprobs = lprobs.view(-1, lprobs.size(-1))
-                target = self.model.get_targets(sample, net_output).view(-1, 1)
-                if target.dim() == lprobs.dim() - 1:
-                    target = target.unsqueeze(-1)
+                #proj_out = self.model.decoder.output_layer(net_output)
+                #lprobs = torch.nn.functional.log_softmax(proj_out, dim=-1)
+                #lprobs = lprobs.view(-1, lprobs.size(-1))
                 sample_size = sample['nsentences']
-                tgt_lprobs = lprobs.gather(dim=-1, index=target).view(sample_size, -1)
+                #tgt_lprobs = lprobs.gather(dim=-1, index=target).view(sample_size, -1)
+                tgt_lprobs = None
+                #target = self.model.get_targets(sample, net_output).view(-1, 1)
+                #if target.dim() == lprobs.dim() - 1:
+                #    target = target.unsqueeze(-1)
+                target = self.model.get_targets(sample, net_output)
                 pad_mask = (sample['target'] == self.tgt_dict.pad())
                 tgt_len = (~pad_mask).float().sum(dim=1).unsqueeze(1)
                 return score, pad_mask, tgt_len, tgt_lprobs

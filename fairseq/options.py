@@ -212,6 +212,8 @@ def get_parser(desc, default_task='translation'):
                         help='type of data actor [base|ave_emb|only_grad|interpolate_grad]')
     parser.add_argument('--data-actor-embed-dropout', type=float, default=0., help='')
     parser.add_argument('--data-actor-proj-dropout', type=float, default=0., help='')
+    parser.add_argument('--data-actor-proj-linear-bias', type=float, default=None, help='the bias term to data actor linear projection')
+    parser.add_argument('--data-actor-proj-post-bias', type=float, default=0, help='the bias term to add after data actor project activation')
     parser.add_argument('--extra-data-actor', type=str, default=None,
                         help='type of data actor [ave_emb]')
     parser.add_argument('--combine-probs', type=str, default=None,
