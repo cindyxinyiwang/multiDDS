@@ -218,7 +218,7 @@ class TransformerActor(torch.nn.Module):
         else: 
             self.project_out = torch.nn.Linear(args.decoder_output_dim, 1, bias)
         nn.init.xavier_uniform_(self.project_out.weight)
-        if bias is not None:
+        if bias:
             nn.init.constant_(self.project_out.bias, self.args.data_actor_proj_linear_bias)
         self.out_score_type = args.out_score_type
         
