@@ -109,7 +109,8 @@ class Trainer(object):
             else:
                 params = [p for p in self.data_actor.parameters() if p.requires_grad]
             data_actor_args = copy.deepcopy(args)
-            #data_actor_args.lr = args.data_actor_lr
+            if self.args.data_actor_lr_scheduler is None:
+                data_actor_args.lr = args.data_actor_lr
             self.data_optimizer = optim.build_optimizer(data_actor_args, params)
             #self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
         else:
@@ -1295,9 +1296,9 @@ class Trainer(object):
                 #reward = (loss_data - cached_loss[i]) * self.optimizer.get_lr()
                 reward = reward.view(sample['nsentences'], -1)
                 reward.masked_fill_(pad_masks[idx], 0.)
+                tgt_len = tgt_lens[idx]
                 if self.args.baseline:
                     #print(reward.data)
-                    tgt_len = tgt_lens[idx]
                     self.baseline = self.baseline - 0.001 * (self.baseline - (reward.sum()/tgt_len).item() )
                     #print("baseline:", self.baseline)
                 if self.args.out_score_type == "tanh": 
