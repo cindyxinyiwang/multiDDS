@@ -316,6 +316,7 @@ def get_parser(desc, default_task='translation'):
     parser.add_argument('--dds-no-neg-reward', action='store_true',
                         help='set the negative reward for DDS to 0')
     parser.add_argument('--proj-grad', action='store_true')
+    parser.add_argument('--train-on-proj', action='store_true')
     parser.add_argument('--train-proj-grad', action='store_true', help="use the training grad to project")
     parser.add_argument('--train-proj-grad-sum', action='store_true', help="use the training grad to project")
     parser.add_argument('--save-proj-train', action='store_true', help="whether to use saved moving avg grad to project")
