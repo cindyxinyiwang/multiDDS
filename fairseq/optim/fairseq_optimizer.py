@@ -6,7 +6,7 @@
 import math
 
 import torch
-
+import numpy as np
 
 class FairseqOptimizer(object):
 
@@ -44,6 +44,94 @@ class FairseqOptimizer(object):
         for param_group in self.optimizer.param_groups:
             for p in param_group['params']:
                 yield p
+
+    def init_lan_sim(self, lan_probs):
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                #if p.grad is None: continue
+                state = self.optimizer.state[p]
+                state['lan_probs'] = np.array([i for i in lan_probs])
+                state['lan_sim'] = np.array([i for i in lan_probs])
+                state['normed_lan_probs'] = [1. for _ in range(len(lan_probs))]
+
+    def save_grad_sim_for_id(self, i):
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                #if p.grad is None: continue
+                state = self.optimizer.state[p]
+                if "lan_sim" not in state: continue 
+
+                cosine_prod = (state['dev_grad'] * p.grad.data).sum().item()
+                cosine_norm = p.grad.data.norm(2) ** 2
+                dev_cosine_norm = state['dev_grad'].norm(2) ** 2
+                cosine_sim = cosine_prod / ((cosine_norm*dev_cosine_norm)**0.5 + 1e-10)
+                #if grad_sim == "cosine":
+                #    cosine_sim = cosine_prod / ((cosine_norm*dev_cosine_norm)**0.5 + 1e-10)
+                #elif grad_sim == "dot_prod":
+                #    cosine_sim = cosine_prod
+                state['lan_sim'][i] = cosine_sim.item()
+
+    def update_lan_probs(self):
+        num_param = 0
+        acc_probs = []
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                #if p.grad is None: continue
+                state = self.optimizer.state[p]
+                if "lan_probs" not in state: continue 
+                num_param += 1
+                s = 0
+                if len(acc_probs) == 0:
+                    acc_probs = [0. for _ in range(len(state['lan_probs']))]
+                #for _ in range(self.args.data_actor_optim_step):
+                #    log_lan_probs = np.log(state['lan_probs'] + 1e-10)
+
+                #    weighted_r = state['lan_sim'] * state['lan_probs']
+                #    grad = state['lan_sim'] - np.sum(weighted_r)
+
+                #    log_lan_probs += grad * self.args.data_actor_lr[0]
+                #    state['lan_probs'] = np.exp(log_lan_probs)
+
+                #for i in range(len(state['lan_sim'])):
+                #    acc_probs[i] += state['lan_probs'][i]
+
+                for i in range(len(state['lan_sim'])):
+                    if len(acc_probs) <= i: acc_probs.append(0.)
+                    state['lan_probs'][i] += state['lan_sim'][i]*self.args.data_actor_lr[0]
+                    state['lan_probs'][i] = max(state['lan_probs'][i], 1e-6)
+                    s += state['lan_probs'][i]
+                for i in range(len(state['lan_sim'])):
+                    state['lan_probs'][i] /= s
+                    acc_probs[i] += state['lan_probs'][i]
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                #if p.grad is None: continue
+                state = self.optimizer.state[p]
+                if "lan_probs" not in state: continue 
+                for i in range(len(state['lan_sim'])):
+                    state['normed_lan_probs'][i] = state["lan_probs"][i] * num_param /acc_probs[i]
+                #print(state['normed_lan_probs'])
+
+    def multiply_grad(self, i):
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                if p.grad is None: continue
+                state = self.optimizer.state[p]
+                if 'normed_lan_probs' not in state: return
+                p.grad *= state['normed_lan_probs'][i]
+
+    def aggregate_lan_probs(self):
+        probs = []
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                #if p.grad is None: continue
+                state = self.optimizer.state[p]
+                if not 'lan_probs' in state: continue
+                probs.append(state['lan_probs'])
+        probs = np.sum(np.array(probs), axis=0)
+        probs = probs / np.sum(probs)
+        return probs
+
 
     def save_dev_grad_multi(self, utility='ave', extras=None):
         """Save dev set gradient"""

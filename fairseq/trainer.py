@@ -697,6 +697,10 @@ class Trainer(object):
                 optimizers = self.optimizer
                 data_actors = self.data_actor
                 data_optimizers = self.data_optimizer
+            elif self.args.tensorwise_dds:
+                optimizers = [self.optimizer]
+                data_actors = [None]
+                data_optimizers = [None]
             else:
                 optimizers = [self.optimizer]
                 data_actors = [self.data_actor]
@@ -715,6 +719,9 @@ class Trainer(object):
                     sample = self._prepare_sample(sample)
                     loss, sample_size, logging_output, _ = self.task.train_step(
                                             sample, self.model, self.criterion, optimizer)
+                    if args.pretrain_data_actor and not self.pretrained and args.tensorwise_dds:
+                        self.pretrain_data_actor(feature=None)
+                        self.pretrained = True
                     optimizer.save_train_grad_t0()
                     self.zero_grad()
                     optimizer.add_grad(eta=0.001)
@@ -726,6 +733,8 @@ class Trainer(object):
                         loss, sample_size, logging_output, _ = self.task.train_step(
                                                 valid_sample, self.model, self.criterion, optimizer)
                         valid_samples.append(valid_sample)
+                    if self.args.tensorwise_dds:
+                        optimizer.save_grad_sim_for_id(i)
                     sim, cur_cosine_norm, prev_cosine_norm = optimizer.get_grad_sim(self.args.grad_sim)
                     sim_list.append(sim)
                     norm_list.append(cur_cosine_norm)
@@ -761,7 +770,12 @@ class Trainer(object):
                 #    print(" ".join([str(s.item()) for s in l]))
                 #print("new dds reward list:")
                 #print(" ".join([str(s) for s in np.mean(all_sim_list, axis=0)]))
-        
+                if self.args.tensorwise_dds:
+                    optimizer.update_lan_probs()
+                    sim_list = optimizer.aggregate_lan_probs()
+                    #self.task.dataset('train').update_sampling_distribution(sim_list)
+                    return
+
                 if args.pretrain_data_actor and not self.pretrained:
                     if self.args.feature_type == 'ones':
                         feature = torch.ones(1, len(self.task.dataset('train').datasets.keys()))
@@ -776,6 +790,7 @@ class Trainer(object):
                         exit(1)
                     self.pretrained = True
                     self.pretrain_data_actor(feature)
+
                 if self.args.data_actor == 'base':
                     feature = torch.ones(1, len(self.task.dataset('train').datasets.keys()))
                 elif self.args.data_actor == 'lan':
@@ -817,6 +832,11 @@ class Trainer(object):
         if self.args.layerwise_dds:
             data_optimizers = self.data_optimizer
             data_actors = self.data_actor
+        elif self.args.tensorwise_dds:
+            print(self.task.dataset('train').p)
+            #self.optimizer.init_lan_sim(self.task.dataset('train').p)
+            self.optimizer.init_lan_sim([1. for _ in range(len(self.task.dataset('train').p))])
+            return
         else:
             data_optimizers = [self.data_optimizer]
             data_actors = [self.data_actor]
@@ -1183,6 +1203,9 @@ class Trainer(object):
                         optim_weights = np.array(optim_weights) / optim_weights.sum() * self.cur_data_actor_probs.shape[0]
                     if self.args.optim_weight_above_one:
                         optim_weights[optim_weights < 1] = 1.
+            if self.args.tensorwise_dds:
+                train_lan_id = self.task.langpair2id[list(sample.keys())[0]]
+                self.optimizer.multiply_grad(train_lan_id)
 
             if self.args.train_proj_grad:
                if self.args.train_proj_grad_sum:

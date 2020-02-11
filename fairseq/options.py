@@ -312,6 +312,7 @@ def get_parser(desc, default_task='translation'):
                         help='[ones|valid_loss|train_loss]')
     parser.add_argument('--layerwise-dds', action='store_true',
                         help='use layerwise DDS')
+    parser.add_argument('--tensorwise-dds', action='store_true')
     parser.add_argument('--dds-no-neg-reward', action='store_true',
                         help='set the negative reward for DDS to 0')
     parser.add_argument('--proj-grad', action='store_true')
