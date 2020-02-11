@@ -993,7 +993,8 @@ class Trainer(object):
                             optimizer.save_proj_grad_id(idx)
                     else:
                         self.optimizer.save_proj_grad_id(idx)
-                    self.zero_grad()
+                    if not self.args.train_on_proj:
+                        self.zero_grad()
 
         if self.args.data_actor_step_update and update_actor:
             self.optimizer.clone_param()
@@ -1223,7 +1224,7 @@ class Trainer(object):
                for i in range(len(self.task.lang_pairs)):
                    self.optimizer.reset_train_grad_id(i)
 
-            if self.args.proj_grad:
+            if self.args.proj_grad and not self.args.train_on_proj:
                 for idx in task_ids:
                     if self.args.layerwise_dds:
                         for optimizer in self.optimizer:
