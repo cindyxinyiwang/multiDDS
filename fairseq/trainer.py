@@ -113,6 +113,7 @@ class Trainer(object):
                 data_actor_args.lr = args.data_actor_lr
             self.data_optimizer = optim.build_optimizer(data_actor_args, params)
             #self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
+
         else:
             self.data_actor = None
             self.data_optimizer = None
@@ -142,7 +143,17 @@ class Trainer(object):
                 noskip=True,
             )[0]
             self.dev_itr.next_epoch_itr(shuffle=True)
-        
+            tmp_data_optimizer = torch.optim.Adam([p for p in self.data_actor.parameters() if p.requires_grad], lr=0.001)
+            # pretrain data actor
+            #for valid_sample in self.dev_itr._cur_epoch_itr:
+            #    valid_sample = self._prepare_sample(valid_sample)
+            #    out, pad_mask, trg_len, proj_out = self.data_actor(valid_sample)
+            #    out.masked_fill_(pad_mask, 0.)
+            #    loss = ((out - 1.0)**2).mean()
+            #    loss.backward()
+            #    tmp_data_optimizer.step()
+            #    tmp_data_optimizer.zero_grad()
+       
         self.baseline = 0
         if args.language_weight:
             self.language_weight = np.array([float(w) for w in args.language_weight.split(",")]).reshape(-1, 1) 
@@ -719,7 +730,7 @@ class Trainer(object):
                     sample = self._prepare_sample(sample)
                     loss, sample_size, logging_output, _ = self.task.train_step(
                                             sample, self.model, self.criterion, optimizer)
-                    if args.pretrain_data_actor and not self.pretrained and args.tensorwise_dds:
+                    if not self.pretrained and args.tensorwise_dds:
                         self.pretrain_data_actor(feature=None)
                         self.pretrained = True
                     optimizer.save_train_grad_t0()
@@ -1044,7 +1055,9 @@ class Trainer(object):
             else:
                 for i, sample in enumerate(samples):
                     sample = self._prepare_sample(sample)
-                    data_actor_out.append(self.data_actor(sample))
+                    out, pad_mask, trg_len = self.data_actor(sample)
+                    data_actor_out.append(out)
+                    pad_masks.append(pad_mask)
                     e_size = sample['nsentences']
                     example_size.append(e_size)
                     if self.args.out_score_type == "tanh":
@@ -1108,6 +1121,10 @@ class Trainer(object):
                     if normed_data_score[i] is not None:
                         cached_loss.append(loss_data)
                         trained_sample_idx.append(i)
+                        print(normed_data_score[i])
+                        #print("before", sample_size)
+                        #sample_size = normed_data_score[i].sum().item() / tgt_lens[i] * sample_size
+                        #print("after", sample_size)
                     # actually saving training grad
                     if self.args.data_actor == 'lan' and update_actor:
                         if len(samples) > 1:
@@ -1118,9 +1135,8 @@ class Trainer(object):
                         else:
                             self.optimizer.save_train_grad_t0()
                     if self.args.discount_grad or self.args.save_proj_train:
-                        if i == 0:
-                            train_lan_id = self.task.langpair2id[list(sample.keys())[0]]
-                            self.optimizer.save_train_grad_id(train_lan_id)
+                        train_lan_id = self.task.langpair2id[list(sample.keys())[0]]
+                        self.optimizer.save_train_grad_id(train_lan_id)
                         
                 if not ignore_grad:
                     logging_outputs.append(logging_output)
@@ -1216,11 +1232,11 @@ class Trainer(object):
                        self.optimizer.proj_grad_id(idx)
                else:
                    for i in range(len(self.task.lang_pairs)):
-                       task_ids = [j for j in range(len(self.task.lang_pairs))]
+                       task_ids = [j for j in range(i, len(self.task.lang_pairs))]
                        task_ids.remove(i)
                        random.shuffle(task_ids)
                        for idx in task_ids:
-                           self.optimizer.proj_grad_id(i, src_idx=idx)
+                           self.optimizer.proj_grad_id(idx, src_idx=i)
                    self.optimizer.combine_proj_grad()
                for i in range(len(self.task.lang_pairs)):
                    self.optimizer.reset_train_grad_id(i)
@@ -1320,7 +1336,7 @@ class Trainer(object):
                 #reward = (loss_data - cached_loss[i]) * self.optimizer.get_lr()
                 reward = reward.view(sample['nsentences'], -1)
                 reward.masked_fill_(pad_masks[idx], 0.)
-                tgt_len = tgt_lens[idx]
+                #tgt_len = tgt_lens[idx]
                 if self.args.baseline:
                     #print(reward.data)
                     self.baseline = self.baseline - 0.001 * (self.baseline - (reward.sum()/tgt_len).item() )
@@ -1337,7 +1353,7 @@ class Trainer(object):
                     #loss = (-torch.log(1e-10+data_actor_out[idx]) * (reward.data - self.baseline)) * (1-self.args.data_loss_lambda) + (-data_actor_proj_out[idx]) * self.args.data_loss_lambda
                     loss = -data_actor_out[idx] * (reward.data - self.baseline)
                 loss = loss[~pad_masks[idx]]
-                loss.div_(tgt_len)
+                #loss.div_(tgt_len)
                 loss.sum().backward()
             self.optimizer.switch_param(clear_cache=True)
 
