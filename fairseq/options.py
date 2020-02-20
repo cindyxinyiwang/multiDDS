@@ -330,6 +330,8 @@ def get_parser(desc, default_task='translation'):
                         help='temperature for controlling datasize sampling')
     parser.add_argument('--alpha-p', type=float, default=0,
                             help='[0-1] amount of interpolation for p')
+    parser.add_argument('--num-dev-samples', type=int, default=8, 
+            help="number of samples to select for dev batch for gradient; max token is set to 1200")
 
     from fairseq.registry import REGISTRIES
     for registry_name, REGISTRY in REGISTRIES.items():

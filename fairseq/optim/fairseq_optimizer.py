@@ -13,6 +13,7 @@ class FairseqOptimizer(object):
     def __init__(self, args):
         super().__init__()
         self.args = args
+        self.lan_probs = None
 
     @staticmethod
     def add_args(parser):
@@ -46,13 +47,19 @@ class FairseqOptimizer(object):
                 yield p
 
     def init_lan_sim(self, lan_probs):
+        self.lan_probs = lan_probs
         for group in self.optimizer.param_groups:
             for p in group["params"]:
                 #if p.grad is None: continue
+                if p.numel() < 10: continue
                 state = self.optimizer.state[p]
-                state['lan_probs'] = np.array([1./len(lan_probs) for i in lan_probs])
+                state['lan_probs'] = np.array([1./prob for prob in lan_probs])
+                state['lan_probs'] = state['lan_probs'] / np.sum(state['lan_probs'])
+                #state['lan_probs'] = np.array([1./len(lan_probs) for i in lan_probs])
+                #state['lan_probs'] = np.array([1.0 for i in range(len(lan_probs))])
                 state['lan_sim'] = np.array([1./len(lan_probs) for i in lan_probs])
-                state['normed_lan_probs'] = [1. for _ in range(len(lan_probs))]
+                #state['normed_lan_probs'] = [1. for _ in range(len(lan_probs))]
+                state['normed_lan_probs'] = state['lan_probs'] * len(state['lan_probs'])
 
     def save_grad_sim_for_id(self, i):
         for group in self.optimizer.param_groups:
@@ -100,7 +107,8 @@ class FairseqOptimizer(object):
                 #for i in range(len(state['lan_sim'])):
                 #    if len(acc_probs) <= i: acc_probs.append(0.)
                 #    state['lan_probs'][i] += state['lan_sim'][i]*self.args.data_actor_lr[0]
-                #    state['lan_probs'][i] = max(state['lan_probs'][i], 1e-6)
+                #    state['lan_probs'][i] = max(state['lan_probs'][i], 0.5)
+                #    state['lan_probs'][i] = min(state['lan_probs'][i], 1.5)
                 #    s += state['lan_probs'][i]
                 #for i in range(len(state['lan_sim'])):
                 #    state['lan_probs'][i] /= s
@@ -111,8 +119,11 @@ class FairseqOptimizer(object):
                 state = self.optimizer.state[p]
                 if "lan_probs" not in state: continue 
                 state['normed_lan_probs'] = state["lan_probs"] * len(state['lan_sim'])
+                mask = state['normed_lan_probs'] < 1.
+                state['normed_lan_probs'][mask] = 1.
                 #for i in range(len(state['lan_sim'])):
                 #   state['normed_lan_probs'][i] = state["lan_probs"][i] * num_param /acc_probs[i]
+                print(state['normed_lan_probs'])
 
     def multiply_grad(self, i):
         for group in self.optimizer.param_groups:

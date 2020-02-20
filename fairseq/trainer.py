@@ -833,8 +833,8 @@ class Trainer(object):
             data_actors = self.data_actor
         elif self.args.tensorwise_dds:
             print(self.task.dataset('train').p)
-            #self.optimizer.init_lan_sim(self.task.dataset('train').p)
-            self.optimizer.init_lan_sim([1. for _ in range(len(self.task.dataset('train').p))])
+            self.optimizer.init_lan_sim(self.task.dataset('train').p)
+            #self.optimizer.init_lan_sim([1. for _ in range(len(self.task.dataset('train').p))])
             return
         else:
             data_optimizers = [self.data_optimizer]
@@ -983,7 +983,7 @@ class Trainer(object):
                         task_ids.remove(train_lan_id)
             if not self.args.save_proj_train:
                 for idx in task_ids:
-                    valid_sample = self.task.dataset('train').get_sample_with_key(self.task.lang_pairs[idx])
+                    valid_sample = self.task.dataset('train').get_sample_with_key(self.task.lang_pairs[idx], num=self.args.num_dev_samples)
                     valid_sample = self._prepare_sample(valid_sample)
                     # calculate sim
                     loss, sample_size, logging_output, _ = self.task.train_step(
