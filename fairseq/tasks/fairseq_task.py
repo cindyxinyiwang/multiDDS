@@ -102,7 +102,7 @@ class FairseqTask(object):
         self, dataset, max_tokens=None, max_sentences=None, max_positions=None,
         ignore_invalid_inputs=False, required_batch_size_multiple=1,
         seed=1, num_shards=1, shard_id=0, num_workers=0, epoch=0, noskip=False, source_lang=None, target_lang=None,
-        data_actor=None, trainer=None, data_filter_percentage=-1, filtered_maxpos_indices=None,
+        data_actor=None, trainer=None, data_filter_percentage=-1, filtered_maxpos_indices=None, dev_grad_dotprod=None,
     ):
         """
         Get an iterator that yields batches of data from the given dataset.
@@ -148,6 +148,7 @@ class FairseqTask(object):
                 indices = data_utils.filter_by_size(
                     indices, dataset, max_positions, raise_exception=(not ignore_invalid_inputs), noskip=noskip,
                 )
+                filtered_maxpos_indices = indices
             else:
                 indices = filtered_maxpos_indices
 
@@ -171,7 +172,7 @@ class FairseqTask(object):
             shard_id=shard_id,
             num_workers=num_workers,
             epoch=epoch,
-        ), indices
+        ), filtered_maxpos_indices
 
     def build_model(self, args):
         """
@@ -247,17 +248,17 @@ class FairseqTask(object):
                 - logging outputs to display while training
         """
         model.train()
-        loss, sample_size, logging_output, loss_data = criterion(model, sample, data_score=data_score, loss_copy=((data_score is not None) or loss_copy))
+        loss, sample_size, logging_output, loss_data, dev_grad_dotprod = criterion(model, sample, data_score=data_score, loss_copy=((data_score is not None) or loss_copy))
         if ignore_grad:
             loss *= 0
         else:
             optimizer.backward(loss)
-        return loss, sample_size, logging_output, loss_data
+        return loss, sample_size, logging_output, loss_data, dev_grad_dotprod
 
     def valid_step(self, sample, model, criterion):
         model.eval()
         with torch.no_grad():
-            loss, sample_size, logging_output, _ = criterion(model, sample)
+            loss, sample_size, logging_output, _, _ = criterion(model, sample)
         return loss, sample_size, logging_output
 
     def inference_step(self, generator, models, sample, prefix_tokens=None):

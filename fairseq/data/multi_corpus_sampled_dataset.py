@@ -177,10 +177,15 @@ class MultiCorpusSampledDataset(FairseqDataset):
         we return the max across all examples at index across all underlying
         datasets.
         """
-        return max(
-            dataset.num_tokens(self._map_index_to_dataset(key, index))
-            for key, dataset in self.datasets.items()
-        )
+        #return max(
+        #    dataset.num_tokens(self._map_index_to_dataset(key, index))
+        #    for key, dataset in self.datasets.items()
+        #)
+        if len(self.datasets.keys()) > 1:
+            k = list(self.datasets.keys())[1]
+        else:
+            k = list(self.datasets.keys())[0]
+        return self.datasets[k].num_tokens(self._map_index_to_dataset(k, index))
 
     #def size(self, index: int):
     #    """

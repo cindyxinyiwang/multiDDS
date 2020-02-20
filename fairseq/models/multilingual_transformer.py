@@ -192,6 +192,9 @@ class MultilingualTransformerModel(FairseqMultiModel):
                 del state_dict_subset[k]
         super().load_state_dict(state_dict_subset, strict=False)
 
+        #for key, m in self.models.items():
+        #    m.load_state_dict(state_dict_subset)
+
 
 @register_model_architecture('multilingual_transformer', 'multilingual_transformer')
 def base_multilingual_architecture(args):

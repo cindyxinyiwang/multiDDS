@@ -295,6 +295,22 @@ class FairseqOptimizer(object):
                 state = self.optimizer.state[p]
                 state['dev_grad'] = p.grad.data.clone()
 
+    def save_train_grad(self):
+        """Save train set gradient"""
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                if p.grad is None: continue
+                state = self.optimizer.state[p]
+                state['grad'] = p.grad.clone()
+
+    def set_train_grad(self):
+        """Save train set gradient"""
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                state = self.optimizer.state[p]
+                if 'grad' not in state: continue
+                p.grad = state['grad'].clone()
+
     def proj_grad(self):
         if self.args.paramwise_proj_grad:
             for group in self.optimizer.param_groups:
@@ -336,7 +352,7 @@ class FairseqOptimizer(object):
         for group in self.optimizer.param_groups:
             for p in group["params"]:
                 state = self.optimizer.state[p]
-                state['param_copy'] = p.data.clone()
+                state['param_copy'] = p.clone()
 
     def add_grad(self, eta):
         """add grad to current param"""
@@ -370,7 +386,7 @@ class FairseqOptimizer(object):
                 dev_cosine_norm += state['dev_grad'].norm(2) ** 2
         if grad_sim == "cosine":
             cosine_sim = cosine_prod / ((cosine_norm*dev_cosine_norm)**0.5 + 1e-10)
-            return cosine_sim.item(), cosine_norm, dev_cosine_norm
+            return cosine_sim, cosine_norm, dev_cosine_norm
         elif grad_sim == "dot_prod":
             cosine_sim = cosine_prod 
             return cosine_sim, cosine_norm, dev_cosine_norm

@@ -394,7 +394,7 @@ class MultilingualTranslationTask(FairseqTask):
                 score = normed_data_score[lang_pair]
             else:
                 score = None
-            loss, sample_size, logging_output, nll_loss_data = criterion(model.models[lang_pair], sample[lang_pair], data_score=score, loss_copy=(loss_copy is not None))
+            loss, sample_size, logging_output, nll_loss_data, _ = criterion(model.models[lang_pair], sample[lang_pair], data_score=score, loss_copy=(loss_copy is not None))
             if loss_copy is not None:
                 loss_copy[lang_pair] = nll_loss_data
             if ignore_grad:
@@ -413,7 +413,7 @@ class MultilingualTranslationTask(FairseqTask):
             # TODO make summing of the sample sizes configurable
             agg_sample_size += sample_size
             agg_logging_output[lang_pair] = logging_output
-        return agg_loss, agg_sample_size, agg_logging_output, nll_loss_data
+        return agg_loss, agg_sample_size, agg_logging_output, nll_loss_data, _
 
     def valid_step(self, sample, model, criterion):
         model.eval()
@@ -422,7 +422,7 @@ class MultilingualTranslationTask(FairseqTask):
             for lang_pair in self.eval_lang_pairs:
                 if lang_pair not in sample or sample[lang_pair] is None or len(sample[lang_pair]) == 0:
                     continue
-                loss, sample_size, logging_output, _ = criterion(model.models[lang_pair], sample[lang_pair])
+                loss, sample_size, logging_output, _, _ = criterion(model.models[lang_pair], sample[lang_pair])
                 agg_loss += loss.data.item()
                 # TODO make summing of the sample sizes configurable
                 agg_sample_size += sample_size

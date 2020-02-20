@@ -6,11 +6,13 @@
 import math
 
 from fairseq import utils
-
+import torch
 from . import FairseqCriterion, register_criterion
 
 
-def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=None, reduce=True, data_score=None, loss_copy=False):
+def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=None, reduce=True, data_score=None, loss_copy=False, args=None):
+    B, T = target.size(0), target.size(1)
+    target = target.view(-1, 1)
     if target.dim() == lprobs.dim() - 1:
         target = target.unsqueeze(-1)
     if loss_copy:
@@ -23,7 +25,30 @@ def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=None, reduce=T
 
     smooth_loss = -lprobs.sum(dim=-1, keepdim=True)
     if data_score is not None:
-        lprobs = (lprobs.view(data_score.size(0), -1, lprobs.size(-1))*data_score.data.unsqueeze(2)).view(-1, lprobs.size(-1))
+        if ignore_index is not None:
+            pad_mask = target.eq(ignore_index)
+            data_score.masked_fill_(pad_mask, 0.)
+            nll_loss_data.masked_fill_(pad_mask, 0.)
+        dev_grad_dotprod = (data_score - nll_loss_data).view(B, -1).sum(dim=1).view(-1).data
+        #if args.reward_level == 'sent':
+        #    reward = (data_score - nll_loss_data).view(B, -1)
+        #    # v8
+        #    #reward = reward.sum(dim=1) * 0.04
+        #    reward = reward.sum(dim=1) * args.reward_constant
+        #    reward = torch.nn.functional.softmax(reward, dim=0).unsqueeze(1) * B
+        #elif args.reward_level == 'word':
+        #    reward = (data_score - nll_loss_data).masked_fill_(pad_mask, -float("inf")) * args.reward_constant
+        #    if ignore_index is not None:
+        #        nwords = (~pad_mask).long().sum()
+        #    else:
+        #        nwords = B*T
+        #    reward = torch.nn.functional.softmax(reward, dim=0) * nwords
+        #    reward = reward.view(B, -1)
+        ##print(reward)
+        #lprobs = (lprobs.view(B, -1, lprobs.size(-1))*reward.data.unsqueeze(2)).view(-1, lprobs.size(-1))
+        ##lprobs = (lprobs.view(data_score.size(0), -1, lprobs.size(-1))*data_score.data.unsqueeze(2)).view(-1, lprobs.size(-1))
+    else:
+        dev_grad_dotprod = None
     nll_loss = -lprobs.gather(dim=-1, index=target)
     if ignore_index is not None:
         non_pad_mask = target.ne(ignore_index)
@@ -37,7 +62,7 @@ def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=None, reduce=T
         smooth_loss = smooth_loss.sum()
     eps_i = epsilon / lprobs.size(-1)
     loss = (1. - epsilon) * nll_loss + eps_i * smooth_loss
-    return loss, nll_loss, nll_loss_data
+    return loss, nll_loss, nll_loss_data, dev_grad_dotprod
 
 
 @register_criterion('label_smoothed_cross_entropy')
@@ -46,6 +71,7 @@ class LabelSmoothedCrossEntropyCriterion(FairseqCriterion):
     def __init__(self, args, task):
         super().__init__(args, task)
         self.eps = args.label_smoothing
+        self.args = args
 
     @staticmethod
     def add_args(parser):
@@ -64,7 +90,7 @@ class LabelSmoothedCrossEntropyCriterion(FairseqCriterion):
         3) logging outputs to display while training
         """
         net_output = model(**sample['net_input'])
-        loss, nll_loss, nll_loss_data = self.compute_loss(model, net_output, sample, reduce=reduce, data_score=data_score, loss_copy=loss_copy)
+        loss, nll_loss, nll_loss_data, dev_grad_dotprod = self.compute_loss(model, net_output, sample, reduce=reduce, data_score=data_score, loss_copy=loss_copy)
         sample_size = sample['target'].size(0) if self.args.sentence_avg else sample['ntokens']
         logging_output = {
             'loss': utils.item(loss.data) if reduce else loss.data,
@@ -73,16 +99,16 @@ class LabelSmoothedCrossEntropyCriterion(FairseqCriterion):
             'nsentences': sample['target'].size(0),
             'sample_size': sample_size,
         }
-        return loss, sample_size, logging_output, nll_loss_data
+        return loss, sample_size, logging_output, nll_loss_data, dev_grad_dotprod
 
     def compute_loss(self, model, net_output, sample, reduce=True, data_score=None, loss_copy=False):
         lprobs = model.get_normalized_probs(net_output, log_probs=True)
         lprobs = lprobs.view(-1, lprobs.size(-1))
-        target = model.get_targets(sample, net_output).view(-1, 1)
-        loss, nll_loss, nll_loss_data = label_smoothed_nll_loss(
-            lprobs, target, self.eps, ignore_index=self.padding_idx, reduce=reduce, data_score=data_score, loss_copy=loss_copy,
+        target = model.get_targets(sample, net_output)
+        loss, nll_loss, nll_loss_data, dev_grad_dotprod = label_smoothed_nll_loss(
+            lprobs, target, self.eps, ignore_index=self.padding_idx, reduce=reduce, data_score=data_score, loss_copy=loss_copy, args=self.args, 
         )
-        return loss, nll_loss, nll_loss_data
+        return loss, nll_loss, nll_loss_data, dev_grad_dotprod
 
     @staticmethod
     def aggregate_logging_outputs(logging_outputs):

@@ -332,6 +332,9 @@ def get_parser(desc, default_task='translation'):
     parser.add_argument('--alpha-p', type=float, default=0,
                             help='[0-1] amount of interpolation for p')
 
+    parser.add_argument('--reward-level', type=str, default="sent")
+    parser.add_argument('--reward-constant', type=float, default=0.01)
+
     from fairseq.registry import REGISTRIES
     for registry_name, REGISTRY in REGISTRIES.items():
         parser.add_argument(

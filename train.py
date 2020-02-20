@@ -108,7 +108,10 @@ def main(args, init_distributed=False):
             epoch_itr = trainer.get_train_iterator(epoch_itr.epoch)[0]
     train_meter.stop()
     print('| done training in {:.1f} seconds'.format(train_meter.sum))
-
+    for idx in sorted(trainer.idx_to_dev_grad_dotprod.keys()):
+        print(idx)
+        str_dotprod = [str(i) for i in trainer.idx_to_dev_grad_dotprod[idx]]
+        print(" ".join(str_dotprod))
 
 def train(args, trainer, task, epoch_itr, generator=None, filtered_maxpos_indices=None):
     """Train the model for one epoch."""
