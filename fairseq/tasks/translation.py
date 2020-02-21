@@ -5,6 +5,8 @@
 
 import itertools
 import os
+import torch
+import numpy as np
 
 from fairseq import options, utils
 from fairseq.data import (
@@ -23,7 +25,7 @@ def load_langpair_dataset(
     tgt, tgt_dict,
     combine, dataset_impl, upsample_primary,
     left_pad_source, left_pad_target, max_source_positions, max_target_positions,
-    src_tag=None, tgt_tag=None, src_tau=-1, tgt_tau=-1,
+    src_tag=None, tgt_tag=None, src_tau=-1, tgt_tau=-1, epoch=0, 
 ):
     def split_exists(split, src, tgt, lang, data_path):
         filename = os.path.join(data_path, '{}.{}-{}.{}'.format(split, src, tgt, lang))
@@ -197,6 +199,7 @@ class TranslationTask(FairseqTask):
             max_target_positions=self.args.max_target_positions,
             src_tag=self.args.src_tag, tgt_tag=self.args.tgt_tag,
             src_tau=self.args.source_tau, tgt_tau=self.args.target_tau,
+            epoch=epoch,
         )
 
     def build_dataset_for_inference(self, src_tokens, src_lengths):
@@ -215,3 +218,38 @@ class TranslationTask(FairseqTask):
     def target_dictionary(self):
         """Return the target :class:`~fairseq.data.Dictionary`."""
         return self.tgt_dict
+
+    def train_step(self, sample, model, criterion, optimizer, ignore_grad=False, data_score=None, loss_copy=False):
+        """
+        Do forward and backward, and return the loss as computed by *criterion*
+        for the given *model* and *sample*.
+
+        Args:
+            sample (dict): the mini-batch. The format is defined by the
+                :class:`~fairseq.data.FairseqDataset`.
+            model (~fairseq.models.BaseFairseqModel): the model
+            criterion (~fairseq.criterions.FairseqCriterion): the criterion
+            optimizer (~fairseq.optim.FairseqOptimizer): the optimizer
+            ignore_grad (bool): multiply loss by 0 if this is set to True
+
+        Returns:
+            tuple:
+                - the loss
+                - the sample size, which is used as the denominator for the
+                  gradient
+                - logging outputs to display while training
+        """
+        model.train()
+        #if type(list(sample.values())[0]) == dict:
+        #    for k, v in sample.items():
+        #        loss, sample_size, logging_output, loss_data, dev_grad_dotprod = criterion(model, v, data_score=data_score, loss_copy=((data_score is not None) or loss_copy))
+        #else:
+        #    loss, sample_size, logging_output, loss_data, dev_grad_dotprod = criterion(model, sample, data_score=data_score, loss_copy=((data_score is not None) or loss_copy))
+        loss, sample_size, logging_output, loss_data, dev_grad_dotprod = criterion(model, sample, data_score=data_score, loss_copy=((data_score is not None) or loss_copy))
+        if ignore_grad:
+            loss *= 0
+        else:
+            optimizer.backward(loss)
+        return loss, sample_size, logging_output, loss_data, dev_grad_dotprod
+
+

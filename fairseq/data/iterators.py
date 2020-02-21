@@ -271,6 +271,39 @@ class EpochBatchIterator(EpochBatchIterating):
             start=offset,
         )
 
+class MultiCountingIterator(object):
+    """Wrapper around an iterable that maintains the iteration count.
+
+    Args:
+        iterable (iterable): iterable to wrap
+
+    Attributes:
+        count (int): number of elements consumed from this iterator
+    """
+
+    def __init__(self, iterable_list):
+        self.iterable_list = iterable_list
+        self.count = start
+        self.itr = iterable_list
+        self.len = max([len(iterable) for iterable in iterable_list])
+
+    def __len__(self):
+        return self.len
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        chunk = []
+        for it in self.iterable_list:
+            if not it.has_next():
+                it.start = 0
+            chunk.append(next(it))
+        return chunk
+
+    def has_next(self):
+        """Whether the iterator has been exhausted."""
+        return self.count < len(self)
 
 class GroupedIterator(object):
     """Wrapper around an iterable that returns groups (chunks) of items.

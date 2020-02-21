@@ -214,6 +214,7 @@ def get_parser(desc, default_task='translation'):
     parser.add_argument('--data-actor-proj-dropout', type=float, default=0., help='')
     parser.add_argument('--data-actor-proj-linear-bias', type=float, default=None, help='the bias term to data actor linear projection')
     parser.add_argument('--data-actor-proj-post-bias', type=float, default=0, help='the bias term to add after data actor project activation')
+    parser.add_argument('--data-actor-sigmoid-scale', type=float, default=1., help='the bias term to add after data actor project activation')
     parser.add_argument('--extra-data-actor', type=str, default=None,
                         help='type of data actor [ave_emb]')
     parser.add_argument('--combine-probs', type=str, default=None,
@@ -332,6 +333,9 @@ def get_parser(desc, default_task='translation'):
                             help='[0-1] amount of interpolation for p')
     parser.add_argument('--num-dev-samples', type=int, default=8, 
             help="number of samples to select for dev batch for gradient; max token is set to 1200")
+
+    parser.add_argument('--reward-level', type=str, default="sent")
+    parser.add_argument('--reward-constant', type=float, default=0.01)
 
     from fairseq.registry import REGISTRIES
     for registry_name, REGISTRY in REGISTRIES.items():

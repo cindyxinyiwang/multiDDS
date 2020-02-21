@@ -218,6 +218,7 @@ class TransformerActor(torch.nn.Module):
         else: 
             self.project_out = torch.nn.Linear(args.decoder_output_dim, 1, bias)
         nn.init.xavier_uniform_(self.project_out.weight)
+        #nn.init.constant_(self.project_out.weight, 0.)
         if bias:
             nn.init.constant_(self.project_out.bias, self.args.data_actor_proj_linear_bias)
         self.out_score_type = args.out_score_type
@@ -246,8 +247,10 @@ class TransformerActor(torch.nn.Module):
                 return tgt_lprobs, pad_mask, tgt_len
             elif self.args.out_score_type == 'proj_word_score':
                 net_output, extra_state = self.model.extract_features(**sample['net_input'])
+                #net_output = torch.tanh(net_output)
                 proj = self.project_out(net_output).squeeze(2)
-                score = torch.sigmoid(proj)
+                #proj = torch.tanh(proj) * 2
+                score = torch.sigmoid(proj) * self.args.data_actor_sigmoid_scale
 
                 #proj_out = self.model.decoder.output_layer(net_output)
                 #lprobs = torch.nn.functional.log_softmax(proj_out, dim=-1)
@@ -276,7 +279,8 @@ class TransformerActor(torch.nn.Module):
             tgt_len = (~pad_mask).float().sum(dim=1).unsqueeze(1)
             # mask out the tgt embs
             net_output.masked_fill_(pad_mask.unsqueeze(2), 0)
-            inp = torch.tanh(net_output.sum(dim=1) / tgt_len)
+            #inp = torch.tanh(net_output.sum(dim=1) / tgt_len)
+            inp = net_output.sum(dim=1) / tgt_len
         elif self.args.data_actor_feature_postprocess == 'last':
             inp = net_output[:, -1, :]
         elif self.args.data_actor_feature_postprocess == 'src_tgt_tanh':
@@ -323,7 +327,7 @@ class TransformerActor(torch.nn.Module):
         elif self.out_score_type == 'tanh':
             proj = self.project_out(inp)
             score = torch.tanh(proj) * self.args.tanh_constant
-        return score 
+        return score, pad_mask, tgt_len
 
 
 

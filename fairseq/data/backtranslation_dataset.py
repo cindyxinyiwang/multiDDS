@@ -33,7 +33,25 @@ def backtranslate_samples(samples, collate_fn, generate_fn, cuda=True):
         List[dict]: an updated list of samples with a backtranslated source
     """
     collated_samples = collate_fn(samples)
-    s = utils.move_to_cuda(collated_samples) if cuda else collated_samples
+    #s = utils.move_to_cuda(collated_samples) if cuda else collated_samples
+    s = {}
+    if cuda:
+        s['id'] = collated_samples['id'].cuda()
+        s['nsentences'] = collated_samples['nsentences'].cuda()
+        s['ntokens'] = collated_samples['ntokens'].cuda()
+        s['net_input'] = {}
+        s['net_input']['src_tokens'] = collated_samples['net_input']['src_tokens'].cuda()
+        s['net_input']['src_lengths'] = collated_samples['net_input']['src_lengths'].cuda()
+        s['target'] = None
+
+        for k, v in collated_samples.items():
+            if v is not None:
+                print(v)
+                s[k] = v
+            else:
+                s[k] = None
+    else:
+        s = collated_samples
     generated_sources = generate_fn(s)
 
     id_to_src = {
@@ -43,6 +61,7 @@ def backtranslate_samples(samples, collate_fn, generate_fn, cuda=True):
     # Go through each tgt sentence in batch and its corresponding best
     # generated hypothesis and create a backtranslation data pair
     # {id: id, source: generated backtranslation, target: original tgt}
+    #return samples
     return [
         {'id': id.item(), 'target': id_to_src[id.item()], 'source': hypos[0]['tokens'].cpu()}
         for id, hypos in zip(collated_samples['id'], generated_sources)
@@ -128,6 +147,7 @@ class BacktranslationDataset(FairseqDataset):
         """
         if samples[0].get('is_dummy', False):
             return samples
+        #return samples
         samples = backtranslate_samples(
             samples=samples,
             collate_fn=self.tgt_dataset.collater,

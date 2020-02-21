@@ -178,7 +178,6 @@ class IndexedDataset(FairseqDataset):
     def supports_prefetch(self):
         return False  # avoid prefetching to save memory
 
-
 class IndexedCachedDataset(IndexedDataset):
 
     def __init__(self, path, fix_lua_indexing=False):
