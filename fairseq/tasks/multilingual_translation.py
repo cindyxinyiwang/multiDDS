@@ -356,7 +356,7 @@ class MultilingualTranslationTask(FairseqTask):
         return model
 
     #def train_step(self, sample, model, criterion, optimizer, ignore_grad=False, data_actor=None, loss_copy=None, data_actor_out=None):
-    def train_step(self, sample, model, criterion, optimizer, ignore_grad=False, data_score=None, loss_copy=False):
+    def train_step(self, sample, model, criterion, optimizer, ignore_grad=False,val_loss_data=None, data_score=None, loss_copy=False):
         model.train()
         data_actor, loss_copy, data_actor_out = None, None, None
         agg_loss, agg_sample_size, agg_logging_output = 0., 0., {}

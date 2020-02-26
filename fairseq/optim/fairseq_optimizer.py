@@ -364,14 +364,6 @@ class FairseqOptimizer(object):
                 state = self.optimizer.state[p]
                 state['param_copy'] = p.clone()
 
-    def add_grad(self, eta):
-        """add grad to current param"""
-        for group in self.optimizer.param_groups:
-            for p in group["params"]:
-                if p.grad is None: continue
-                state = self.optimizer.state[p]
-                p.data += state['dev_grad']*eta
-
     def switch_param(self, clear_cache=False):
         """Swap copy and the param values"""
         for group in self.optimizer.param_groups:
@@ -383,6 +375,50 @@ class FairseqOptimizer(object):
                     state['param_copy'] = None 
                 else:
                     state['param_copy'] = cur_p
+
+    def save_cur_train_grad(self):
+        """Save train set gradient"""
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                if p.grad is None: continue
+                state = self.optimizer.state[p]
+                state['cur_train_grad'] = p.grad.data.clone()
+
+    def reset_cur_train_grad(self):
+        """Save train set gradient"""
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                state = self.optimizer.state[p]
+                if 'cur_train_grad' not in state: continue
+                p.grad = state['cur_train_grad']
+                state['cur_train_grad'] = None
+
+    def save_new_grad(self, sample_size):
+        """Save new gradient"""
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                if p.grad is None: continue
+                state = self.optimizer.state[p]
+                if 'cur_train_grad' in state and state['cur_train_grad'] is not None:
+                    state['new_grad'] = (p.grad.data.clone() - state['cur_train_grad']) / sample_size
+                else:
+                    state['new_grad'] = p.grad.data.clone() / sample_size
+
+    def add_new_grad(self, eta):
+        """Save new gradient"""
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                if p.grad is None: continue
+                state = self.optimizer.state[p]
+                p.data += state['new_grad']*eta
+
+    def add_grad(self, eta):
+        """add grad to current param"""
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                if p.grad is None: continue
+                state = self.optimizer.state[p]
+                p.data += state['dev_grad']*eta
 
     def get_grad_sim(self, grad_sim='cosine'):
         """Get gradient similarity with dev set gradient"""

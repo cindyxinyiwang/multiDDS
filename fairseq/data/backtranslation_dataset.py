@@ -8,9 +8,9 @@ import torch
 from fairseq import utils
 
 from . import FairseqDataset
+from fairseq.data.noising import UnsupervisedMTNoising 
 
-
-def backtranslate_samples(samples, collate_fn, generate_fn, cuda=True):
+def backtranslate_samples(samples, collate_fn, generate_fn, cuda=True, noising=None):
     """Backtranslate a list of samples.
 
     Given an input (*samples*) of the form:
@@ -33,25 +33,8 @@ def backtranslate_samples(samples, collate_fn, generate_fn, cuda=True):
         List[dict]: an updated list of samples with a backtranslated source
     """
     collated_samples = collate_fn(samples)
-    #s = utils.move_to_cuda(collated_samples) if cuda else collated_samples
-    s = {}
-    if cuda:
-        s['id'] = collated_samples['id'].cuda()
-        s['nsentences'] = collated_samples['nsentences'].cuda()
-        s['ntokens'] = collated_samples['ntokens'].cuda()
-        s['net_input'] = {}
-        s['net_input']['src_tokens'] = collated_samples['net_input']['src_tokens'].cuda()
-        s['net_input']['src_lengths'] = collated_samples['net_input']['src_lengths'].cuda()
-        s['target'] = None
+    s = utils.move_to_cuda(collated_samples) if cuda else collated_samples
 
-        for k, v in collated_samples.items():
-            if v is not None:
-                print(v)
-                s[k] = v
-            else:
-                s[k] = None
-    else:
-        s = collated_samples
     generated_sources = generate_fn(s)
 
     id_to_src = {
@@ -62,10 +45,29 @@ def backtranslate_samples(samples, collate_fn, generate_fn, cuda=True):
     # generated hypothesis and create a backtranslation data pair
     # {id: id, source: generated backtranslation, target: original tgt}
     #return samples
-    return [
+
+    ret_samples =  [
         {'id': id.item(), 'target': id_to_src[id.item()], 'source': hypos[0]['tokens'].cpu()}
         for id, hypos in zip(collated_samples['id'], generated_sources)
     ]
+    if noising is not None:
+        backward_samples = []
+        for id, hypos in zip(collated_samples['id'], generated_sources):
+            s = id_to_src[id.item()]
+            src_len = torch.LongTensor([s.size(0)])
+            s = s.unsqueeze(1)
+
+            ns = noising.noising(s, src_len)
+            ns = torch.t(ns)[0]
+
+            backward_samples.append({'id': id.item(), 'source': ns, 'target': hypos[0]['tokens'].cpu()})
+    else:
+        backward_samples = [
+            {'id': id.item(), 'source': id_to_src[id.item()], 'target': hypos[0]['tokens'].cpu()}
+            for id, hypos in zip(collated_samples['id'], generated_sources)
+        ]
+    return ret_samples, backward_samples
+
 
 
 class BacktranslationDataset(FairseqDataset):
@@ -101,6 +103,7 @@ class BacktranslationDataset(FairseqDataset):
         tgt_dict=None,
         backtranslation_fn=None,
         output_collater=None,
+        backward_output_collater=None,
         cuda=True,
         **kwargs
     ):
@@ -108,9 +111,13 @@ class BacktranslationDataset(FairseqDataset):
         self.backtranslation_fn = backtranslation_fn
         self.output_collater = output_collater if output_collater is not None \
             else tgt_dataset.collater
+        self.backward_output_collater = backward_output_collater if backward_output_collater is not None \
+            else self.output_collater
         self.cuda = cuda if torch.cuda.is_available() else False
         self.src_dict = src_dict
         self.tgt_dict = tgt_dict
+        #self.noising = UnsupervisedMTNoising(self.src_dict, max_word_shuffle_distance=5, word_dropout_prob=0.2, word_blanking_prob=0.2, bpe_cont_marker="▁")
+        self.noising = None
 
     def __getitem__(self, index):
         """
@@ -148,15 +155,26 @@ class BacktranslationDataset(FairseqDataset):
         if samples[0].get('is_dummy', False):
             return samples
         #return samples
-        samples = backtranslate_samples(
+        samples, backward_samples = backtranslate_samples(
             samples=samples,
             collate_fn=self.tgt_dataset.collater,
             generate_fn=(
                 lambda net_input: self.backtranslation_fn(net_input)
             ),
             cuda=self.cuda,
+            noising=self.noising,
         )
-        return self.output_collater(samples)
+        print("bt generated src-trg")
+        src_str = self.src_dict.string(samples[0]['source'])
+        tgt_str = self.tgt_dict.string(samples[0]['target'])
+        print(src_str)
+        print(tgt_str)
+        print("update bt src-trg")
+        src_str = self.src_dict.string(backward_samples[0]['source'])
+        tgt_str = self.tgt_dict.string(backward_samples[0]['target'])
+        print(src_str)
+        print(tgt_str)
+        return {0:self.output_collater(samples), 1: self.backward_output_collater(backward_samples)}
 
     def num_tokens(self, index):
         """Just use the tgt dataset num_tokens"""

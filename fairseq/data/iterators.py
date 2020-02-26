@@ -152,6 +152,7 @@ class EpochBatchIterator(EpochBatchIterating):
         self.seed = seed
         self.num_shards = num_shards
         self.shard_id = shard_id
+        num_workers=0
         self.num_workers = num_workers
 
         self.epoch = epoch

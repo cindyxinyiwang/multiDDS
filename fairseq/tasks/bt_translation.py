@@ -16,11 +16,13 @@ from fairseq.data import (
     NoisingDataset,
     data_utils,
     RoundRobinZipDatasets,
+    UnsupervisedMTNoising,
 )
 from fairseq.models import FairseqMultiModel
 from fairseq.sequence_generator import SequenceGenerator
 from fairseq.tasks.translation import load_langpair_dataset
-
+from fairseq import utils
+import torch
 
 from .multilingual_translation import MultilingualTranslationTask
 from . import register_task
@@ -33,6 +35,10 @@ def _get_bt_dataset_key(lang_pair):
 def _get_denoising_dataset_key(lang_pair):
     return "denoising:" + lang_pair
 
+def  _get_dds_bt_key(lang_pair):
+    src, tgt = lang_pair.split("-")
+    bt_lang_pair = tgt + "-" + src
+    return bt_lang_pair
 
 # ported from UnsupervisedMT
 def parse_lambda_config(x):
@@ -114,13 +120,17 @@ class BtTranslationTask(MultilingualTranslationTask):
         parser.add_argument('--word-blanking-prob', default=0.2, type=float, metavar='N',
                             help='word blanking probability for denoising autoencoding data generation')
         # fmt: on
+        parser.add_argument('--bt_dds', action='store_true')
 
     def __init__(self, args, dicts, training):
         super().__init__(args, dicts, training)
         self.lambda_parallel, self.lambda_parallel_steps = parse_lambda_config(args.lambda_parallel_config)
         self.lambda_otf_bt, self.lambda_otf_bt_steps = parse_lambda_config(args.lambda_otf_bt_config)
+        self.lambda_denoising, self.lambda_denoising_steps = parse_lambda_config(args.lambda_denoising_config)
         self.backtranslate_datasets = {}
         self.backtranslators = {}
+        self.cuda = torch.cuda.is_available() and not args.cpu
+        self.baseline = None
 
     @classmethod
     def setup_task(cls, args, **kwargs):
@@ -233,6 +243,23 @@ class BtTranslationTask(MultilingualTranslationTask):
             ]),
             eval_key=None if self.training else "%s-%s" % (self.args.source_lang, self.args.target_lang),
         )
+        if split == 'valid' and self.args.bt_dds:
+            self.dev_itr = self.get_batch_iterator(
+                dataset=self.dataset('valid'),
+                max_tokens=self.args.max_tokens_valid,
+                max_sentences=self.args.max_sentences_valid,
+                max_positions=utils.resolve_max_positions(
+                    self.max_positions(),
+                ),
+                ignore_invalid_inputs=self.args.skip_invalid_size_inputs_valid_test,
+                required_batch_size_multiple=self.args.required_batch_size_multiple,
+                seed=self.args.seed,
+                num_shards=self.args.distributed_world_size,
+                shard_id=self.args.distributed_rank,
+                num_workers=self.args.num_workers,
+                noskip=True,
+            )[0]
+            self.dev_itr.next_epoch_itr(shuffle=True)
 
     def build_model(self, args):
         from fairseq import models
@@ -245,7 +272,14 @@ class BtTranslationTask(MultilingualTranslationTask):
         self.lang_pairs = copied_lang_pairs
         if not isinstance(model, FairseqMultiModel):
             raise ValueError('SemisupervisedTranslationTask requires a FairseqMultiModel architecture')
-
+        if self.args.bt_dds:
+            # set up data actor finetune optimizer
+            bt_params = []
+            for lang_pair in self.lang_pairs:
+                bt_lang_pair = _get_dds_bt_key(lang_pair)
+                for p in model.models[bt_lang_pair].parameters():
+                    if p.requires_grad: bt_params.append(p)
+            self.data_optimizer = torch.optim.SGD(bt_params, lr=self.args.data_actor_lr[0])
         # create SequenceGenerator for each model that has backtranslation dependency on it
         self.sequence_generators = {}
         #if (self.lambda_otf_bt > 0.0 or self.lambda_otf_bt_steps is not None) and self.training:
@@ -270,6 +304,8 @@ class BtTranslationTask(MultilingualTranslationTask):
                         [model],
                         sample,
                         bos_token=bos_token,
+                        sampling=self.args.sampling,
+                        sampling_topk=self.args.sampling_topk,
                     )
                 self.backtranslators[lang_pair] = backtranslate_fn
 
@@ -279,11 +315,13 @@ class BtTranslationTask(MultilingualTranslationTask):
         model.train()
         agg_loss, agg_sample_size, agg_logging_output = 0., 0., {}
 
-        def forward_backward(model, samples, logging_output_key, weight):
+        def forward_backward(model, samples, logging_output_key, weight, val_loss_data=None, loss_copy=False, ignore=False):
             nonlocal agg_loss, agg_sample_size, agg_logging_output
             if samples is None or len(samples) == 0:
                 return
-            loss, sample_size, logging_output, _, _ = criterion(model, samples)
+            loss, sample_size, logging_output, nll_loss_data, dev_grad_dotprod = criterion(model, samples, val_loss_data=val_loss_data, loss_copy=loss_copy)
+            if ignore: 
+                return nll_loss_data, dev_grad_dotprod
             if ignore_grad:
                 loss *= 0
             else:
@@ -293,18 +331,119 @@ class BtTranslationTask(MultilingualTranslationTask):
             # TODO make summing of the sample sizes configurable
             agg_sample_size += sample_size
             agg_logging_output[logging_output_key] = logging_output
+            return nll_loss_data, dev_grad_dotprod
 
         #if self.lambda_parallel > 0.0:
         self.lambda_parallel = 1.
         self.lambda_otf_bt = 1.
         for lang_pair in self.lang_pairs:
+            #if self.args.bt_dds:
+            #    optimizer.clone_param()
+            #    optimizer.save_cur_train_grad()
+            #    if self.dev_itr.end_of_epoch():
+            #            self.dev_itr.next_epoch_itr(shuffle=True)
+            #    for valid_sample in self.dev_itr._cur_epoch_itr:
+            #        valid_sample = utils.move_to_cuda(valid_sample) if self.cuda else valid_sample
+            #        loss, v_sample_size, _, _, _ = criterion(model.models[lang_pair], valid_sample[lang_pair][0])
+            #        optimizer.backward(loss)
+            #        break
+            #    optimizer.save_new_grad(v_sample_size)
+            #    # get per example reward
+            #    eta = 1e-7
+            #    optimizer.add_new_grad(eta=eta)
+            #    with torch.no_grad():
+            #        loss, _, _, val_loss_data, _ = criterion(model.models[lang_pair], sample[lang_pair][0], loss_copy=True)
+            #    optimizer.switch_param(clear_cache=True)
+            #    optimizer.reset_cur_train_grad()
+            #else:
+            #    val_loss_data = None
+            #nll_loss_data, dev_grad_dotprod = forward_backward(model.models[lang_pair], sample[lang_pair][0], lang_pair, self.lambda_parallel, val_loss_data=val_loss_data, loss_copy=True)
             forward_backward(model.models[lang_pair], sample[lang_pair], lang_pair, self.lambda_parallel)
+            #if self.args.bt_dds and self.lambda_denoising > 0:
+            #    # update the bt model using dev grad reward
+            #    bt_lang_pair = _get_dds_bt_key(lang_pair)
+            #    #src, tgt = lang_pair.split("-")
+            #    #bt_lang_pair = tgt + "-" + src
+            #    reward = dev_grad_dotprod / eta
+            #    if self.baseline is None:
+            #        #self.baseline = (reward.sum()/reward.size()[0]).item()
+            #        self.baseline = 0
+            #    else:
+            #        self.baseline = self.baseline - 0.001 * (self.baseline - (reward.sum()/reward.size()[0]).item())
+            #    reward = reward - self.baseline
+            #    reward = reward * 0.0001
 
+            #    loss, _, logging_output, val_loss_data, _ = criterion(model.models[bt_lang_pair], sample[lang_pair][1], data_score=reward, loss_copy=False)
+            #    loss = loss * self.lambda_denoising
+            #    print(self.lambda_denoising)
+            #    optimizer.backward(loss)
+            #    agg_logging_output[bt_lang_pair] = logging_output
+ 
         #if self.lambda_otf_bt > 0.0:
         for lang_pair in self.lang_pairs:
             sample_key = _get_bt_dataset_key(lang_pair)
-            forward_backward(model.models[lang_pair], sample[sample_key], sample_key, self.lambda_otf_bt)
+            if self.args.bt_dds:
+                optimizer.clone_param()
+                optimizer.save_cur_train_grad()
+                if self.dev_itr.end_of_epoch():
+                        self.dev_itr.next_epoch_itr(shuffle=True)
+                for valid_sample in self.dev_itr._cur_epoch_itr:
+                    valid_sample = utils.move_to_cuda(valid_sample) if self.cuda else valid_sample
+                    loss, v_sample_size, _, _, _ = criterion(model.models[lang_pair], valid_sample[lang_pair])
+                    optimizer.backward(loss)
+                    break
+                optimizer.save_new_grad(v_sample_size)
+                # get per example reward
+                eta = 1e-7
+                optimizer.add_new_grad(eta=eta)
+                with torch.no_grad():
+                    loss, _, _, val_loss_data, _ = criterion(model.models[lang_pair], sample[sample_key][0], loss_copy=True)
+                optimizer.switch_param(clear_cache=True)
+                optimizer.reset_cur_train_grad()
+            else:
+                val_loss_data = None
+            #print(sample[sample_key][0])
+            nll_loss_data, dev_grad_dotprod = forward_backward(model.models[lang_pair], sample[sample_key][0], sample_key, self.lambda_otf_bt, val_loss_data=val_loss_data, loss_copy=True)
+            
+            if self.args.bt_dds and self.lambda_denoising > 0:
+                # update the bt model using dev grad reward
+                bt_lang_pair = _get_dds_bt_key(lang_pair)
+                #src, tgt = lang_pair.split("-")
+                #bt_lang_pair = tgt + "-" + src
+                reward = dev_grad_dotprod / eta
+                if self.baseline is None:
+                    #self.baseline = (reward.sum()/reward.size()[0]).item()
+                    self.baseline = 0
+                else:
+                    self.baseline = self.baseline - 0.001 * (self.baseline - (reward.sum()/reward.size()[0]).item())
+                reward = reward - self.baseline
+                reward = reward * 0.0001
+
+                loss, _, logging_output, val_loss_data, _ = criterion(model.models[bt_lang_pair], sample[sample_key][1], data_score=reward, loss_copy=False)
+                loss = loss * self.lambda_denoising
+                #loss = loss * 0
+                loss.backward()
+                self.data_optimizer.step()
+                self.data_optimizer.zero_grad()
+                #print(self.lambda_denoising)
+                agg_logging_output[bt_lang_pair] = logging_output
+                   
         return agg_loss, agg_sample_size, agg_logging_output, None, None
+
+    #def valid_step(self, sample, model, criterion):
+    #    model.eval()
+    #    with torch.no_grad():
+    #        agg_loss, agg_sample_size, agg_logging_output = 0., 0., {}
+    #        for lang_pair in self.eval_lang_pairs:
+    #            if lang_pair not in sample or sample[lang_pair][0] is None or len(sample[lang_pair][0]) == 0:
+    #                continue
+    #            loss, sample_size, logging_output, _, _ = criterion(model.models[lang_pair], sample[lang_pair][0])
+    #            agg_loss += loss.data.item()
+    #            # TODO make summing of the sample sizes configurable
+    #            agg_sample_size += sample_size
+    #            agg_logging_output[lang_pair] = logging_output
+    #    return agg_loss, agg_sample_size, agg_logging_output
+
 
     def update_step(self, num_updates):
         def lambda_step_func(config, n_iter):
@@ -325,6 +464,8 @@ class BtTranslationTask(MultilingualTranslationTask):
             self.lambda_parallel = lambda_step_func(self.lambda_parallel_steps, num_updates)
         if self.lambda_otf_bt_steps is not None:
             self.lambda_otf_bt = lambda_step_func(self.lambda_otf_bt_steps, num_updates)
+        if self.lambda_denoising_steps is not None:
+            self.lambda_denoising = lambda_step_func(self.lambda_denoising_steps, num_updates)
 
     def aggregate_logging_outputs(self, logging_outputs, criterion):
         # aggregate logging outputs for each language pair
@@ -339,6 +480,6 @@ class BtTranslationTask(MultilingualTranslationTask):
         ] + [
             _get_denoising_dataset_key(lang_pair)
             for lang_pair in self.lang_pairs
-        ])
+        ] + [_get_dds_bt_key(lang_pair) for lang_pair in self.lang_pairs])
         logging_output_keys = logging_output_keys.intersection(lang_pair_keys)
         return super().aggregate_logging_outputs(logging_outputs, criterion, logging_output_keys)

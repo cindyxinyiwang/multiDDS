@@ -25,7 +25,7 @@ from .monolingual_dataset import MonolingualDataset
 from .multi_corpus_sampled_dataset import MultiCorpusSampledDataset 
 from .tcs_sampled_dataset import TCSSampledDataset 
 from .nested_dictionary_dataset import NestedDictionaryDataset
-from .noising import NoisingDataset
+from .noising import NoisingDataset, UnsupervisedMTNoising
 from .numel_dataset import NumelDataset
 from .num_samples_dataset import NumSamplesDataset
 from .offset_tokens_dataset import OffsetTokensDataset

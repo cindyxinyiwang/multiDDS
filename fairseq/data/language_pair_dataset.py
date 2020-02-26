@@ -239,13 +239,36 @@ class LanguagePairDataset(FairseqDataset):
                   target sentence of shape `(bsz, tgt_len)`. Padding will appear
                   on the left if *left_pad_target* is ``True``.
         """
-        return collate(
+        #return collate(
+        #    samples, pad_idx=self.src_dict.pad(), eos_idx=self.src_dict.eos(),
+        #    left_pad_source=self.left_pad_source, left_pad_target=self.left_pad_target,
+        #    input_feeding=self.input_feeding, char_dim=len(self.src_dict),
+        #    src_tag_idx=self.src_tag_idx, tgt_tag_idx=self.tgt_tag_idx,
+        #    src_tau=self.src_tau, tgt_tau=self.tgt_tau, src_dict=self.src_dict, tgt_dict=self.tgt_dict,
+        #)
+        item = collate(
             samples, pad_idx=self.src_dict.pad(), eos_idx=self.src_dict.eos(),
             left_pad_source=self.left_pad_source, left_pad_target=self.left_pad_target,
             input_feeding=self.input_feeding, char_dim=len(self.src_dict),
             src_tag_idx=self.src_tag_idx, tgt_tag_idx=self.tgt_tag_idx,
             src_tau=self.src_tau, tgt_tau=self.tgt_tau, src_dict=self.src_dict, tgt_dict=self.tgt_dict,
         )
+        return item
+        #if samples[0]["target"] is None: return item
+        #rev_samples = []
+        #for s in samples:
+        #    src = s['source']
+        #    s['source'] = s['target']
+        #    s['target'] = src
+        #    rev_samples.append(s)
+        #rev_item = collate(
+        #    rev_samples, pad_idx=self.src_dict.pad(), eos_idx=self.src_dict.eos(),
+        #    left_pad_source=self.left_pad_source, left_pad_target=self.left_pad_target,
+        #    input_feeding=self.input_feeding, char_dim=len(self.src_dict),
+        #    src_tag_idx=self.src_tag_idx, tgt_tag_idx=self.tgt_tag_idx,
+        #    src_tau=self.src_tau, tgt_tau=self.tgt_tau, src_dict=self.src_dict, tgt_dict=self.tgt_dict,
+        #)
+        #return {0: item, 1: rev_item}
 
     def num_tokens(self, index):
         """Return the number of tokens in a sample. This value is used to

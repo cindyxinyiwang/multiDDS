@@ -10,7 +10,7 @@ import torch
 from . import FairseqCriterion, register_criterion
 
 
-def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=None, reduce=True, data_score=None, loss_copy=False, args=None):
+def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=None, reduce=True, data_score=None, val_loss_data=None, loss_copy=False, args=None):
     B, T = target.size(0), target.size(1)
     target = target.view(-1, 1)
     if target.dim() == lprobs.dim() - 1:
@@ -24,12 +24,16 @@ def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=None, reduce=T
         nll_loss_data = None
 
     smooth_loss = -lprobs.sum(dim=-1, keepdim=True)
-    if data_score is not None:
+    if val_loss_data is not None:
         if ignore_index is not None:
             pad_mask = target.eq(ignore_index)
-            data_score.masked_fill_(pad_mask, 0.)
+            val_loss_data.masked_fill_(pad_mask, 0.)
             nll_loss_data.masked_fill_(pad_mask, 0.)
-        dev_grad_dotprod = (data_score - nll_loss_data).view(B, -1).sum(dim=1).view(-1).data
+            tgt_len = (~pad_mask).float().view(B, -1).sum(dim=1, keepdim=True)
+        else:
+            tgt_len = T + 0.0
+        dev_grad_dotprod = (val_loss_data - nll_loss_data).view(B, -1).sum(dim=1, keepdim=True).data / tgt_len
+        #dev_grad_dotprod = (val_loss_data - nll_loss_data).view(B, -1).data
         #if args.reward_level == 'sent':
         #    reward = (data_score - nll_loss_data).view(B, -1)
         #    # v8
@@ -49,7 +53,14 @@ def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=None, reduce=T
         ##lprobs = (lprobs.view(data_score.size(0), -1, lprobs.size(-1))*data_score.data.unsqueeze(2)).view(-1, lprobs.size(-1))
     else:
         dev_grad_dotprod = None
+
     nll_loss = -lprobs.gather(dim=-1, index=target)
+    if data_score is not None:
+        reward = torch.nn.functional.relu(data_score.data)
+        #reward = data_score.data
+        print(reward)
+        nll_loss = nll_loss.view(B, -1) * reward
+        nll_loss = nll_loss.view(-1, 1)
     if ignore_index is not None:
         non_pad_mask = target.ne(ignore_index)
         nll_loss = nll_loss[non_pad_mask]
@@ -81,7 +92,7 @@ class LabelSmoothedCrossEntropyCriterion(FairseqCriterion):
                             help='epsilon for label smoothing, 0 means no label smoothing')
         # fmt: on
 
-    def forward(self, model, sample, reduce=True, data_score=None, loss_copy=False):
+    def forward(self, model, sample, reduce=True, val_loss_data=None, data_score=None, loss_copy=False, debug_print=False):
         """Compute the loss for the given sample.
 
         Returns a tuple with three elements:
@@ -90,7 +101,9 @@ class LabelSmoothedCrossEntropyCriterion(FairseqCriterion):
         3) logging outputs to display while training
         """
         net_output = model(**sample['net_input'])
-        loss, nll_loss, nll_loss_data, dev_grad_dotprod = self.compute_loss(model, net_output, sample, reduce=reduce, data_score=data_score, loss_copy=loss_copy)
+        loss, nll_loss, nll_loss_data, dev_grad_dotprod = self.compute_loss(model, net_output, sample, reduce=reduce, val_loss_data=val_loss_data, data_score=data_score, loss_copy=loss_copy, debug_print=debug_print)
+        if debug_print:
+            print(nll_loss_data)
         sample_size = sample['target'].size(0) if self.args.sentence_avg else sample['ntokens']
         logging_output = {
             'loss': utils.item(loss.data) if reduce else loss.data,
@@ -101,12 +114,14 @@ class LabelSmoothedCrossEntropyCriterion(FairseqCriterion):
         }
         return loss, sample_size, logging_output, nll_loss_data, dev_grad_dotprod
 
-    def compute_loss(self, model, net_output, sample, reduce=True, data_score=None, loss_copy=False):
+    def compute_loss(self, model, net_output, sample, reduce=True, data_score=None, val_loss_data=None, loss_copy=False, debug_print=False):
         lprobs = model.get_normalized_probs(net_output, log_probs=True)
         lprobs = lprobs.view(-1, lprobs.size(-1))
         target = model.get_targets(sample, net_output)
+        if debug_print:
+            print(target)
         loss, nll_loss, nll_loss_data, dev_grad_dotprod = label_smoothed_nll_loss(
-            lprobs, target, self.eps, ignore_index=self.padding_idx, reduce=reduce, data_score=data_score, loss_copy=loss_copy, args=self.args, 
+            lprobs, target, self.eps, ignore_index=self.padding_idx, reduce=reduce, data_score=data_score, val_loss_data=val_loss_data, loss_copy=loss_copy, args=self.args, 
         )
         return loss, nll_loss, nll_loss_data, dev_grad_dotprod
 

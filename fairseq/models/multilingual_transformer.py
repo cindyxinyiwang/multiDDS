@@ -51,7 +51,9 @@ class MultilingualTransformerModel(FairseqMultiModel):
                             help='share encoders across languages')
         parser.add_argument('--share-decoders', action='store_true',
                             help='share decoders across languages')
-
+        parser.add_argument('--share-all-langpair-embeddings', action='store_true',
+                            help='share encoder embeddings across languages')
+ 
     @classmethod
     def build_model(cls, args, task):
         """Build a new model instance."""
@@ -65,6 +67,8 @@ class MultilingualTransformerModel(FairseqMultiModel):
             args.max_source_positions = 1024
         if not hasattr(args, 'max_target_positions'):
             args.max_target_positions = 1024
+        if not hasattr(args, 'share_all_langpair_embeddings'):
+            args.share_all_langpair_embeddings = False
 
         src_langs = [lang_pair.split('-')[0] for lang_pair in task.model_lang_pairs]
         tgt_langs = [lang_pair.split('-')[1] for lang_pair in task.model_lang_pairs]
@@ -102,6 +106,18 @@ class MultilingualTransformerModel(FairseqMultiModel):
             )
             shared_decoder_embed_tokens = shared_encoder_embed_tokens
             args.share_decoder_input_output_embed = True
+        elif args.share_all_langpair_embeddings:
+            lang_pair_embed = {}
+            for lang_pair in task.model_lang_pairs:
+                print(lang_pair)
+                lang_pair_embed[lang_pair] = FairseqMultiModel.build_shared_embeddings(
+                    dicts=task.dicts,
+                    langs=task.langs,
+                    embed_dim=args.encoder_embed_dim,
+                    build_embedding=build_embedding,
+                    pretrained_embed_path=args.encoder_embed_path,
+                )
+            args.share_decoder_input_output_embed = True
         else:
             if args.share_encoder_embeddings:
                 shared_encoder_embed_tokens = (
@@ -127,10 +143,12 @@ class MultilingualTransformerModel(FairseqMultiModel):
         # encoders/decoders for each language
         lang_encoders, lang_decoders = {}, {}
 
-        def get_encoder(lang):
+        def get_encoder(lang, lang_pair=None):
             if lang not in lang_encoders:
                 if shared_encoder_embed_tokens is not None:
                     encoder_embed_tokens = shared_encoder_embed_tokens
+                elif args.share_all_langpair_embeddings:
+                    encoder_embed_tokens = lang_pair_embed[lang_pair]
                 else:
                     encoder_embed_tokens = build_embedding(
                         task.dicts[lang], args.encoder_embed_dim, args.encoder_embed_path
@@ -138,10 +156,12 @@ class MultilingualTransformerModel(FairseqMultiModel):
                 lang_encoders[lang] = TransformerEncoder(args, task.dicts[lang], encoder_embed_tokens)
             return lang_encoders[lang]
 
-        def get_decoder(lang):
+        def get_decoder(lang, lang_pair=None):
             if lang not in lang_decoders:
                 if shared_decoder_embed_tokens is not None:
                     decoder_embed_tokens = shared_decoder_embed_tokens
+                elif args.share_all_langpair_embeddings:
+                    decoder_embed_tokens = lang_pair_embed[lang_pair]
                 else:
                     decoder_embed_tokens = build_embedding(
                         task.dicts[lang], args.decoder_embed_dim, args.decoder_embed_path
@@ -173,11 +193,11 @@ class MultilingualTransformerModel(FairseqMultiModel):
             if args.encoder_lang_group:
                 encoders[lang_pair] = shared_encoder_group[src]
             else:
-                encoders[lang_pair] = shared_encoder if shared_encoder is not None else get_encoder(src)
+                encoders[lang_pair] = shared_encoder if shared_encoder is not None else get_encoder(src, lang_pair)
             if args.decoder_lang_group:
                 decoders[lang_pair] = shared_decoder_group[tgt]
             else:
-                decoders[lang_pair] = shared_decoder if shared_decoder is not None else get_decoder(tgt)
+                decoders[lang_pair] = shared_decoder if shared_decoder is not None else get_decoder(tgt, lang_pair)
 
         ret = MultilingualTransformerModel(encoders, decoders, args)
         ret.embed_tokens = shared_encoder_embed_tokens
@@ -244,4 +264,9 @@ def multilingual_transformer_iwslt_de_en(args):
     args.decoder_ffn_embed_dim = getattr(args, 'decoder_ffn_embed_dim', 1024)
     args.decoder_attention_heads = getattr(args, 'decoder_attention_heads', 4)
     args.decoder_layers = getattr(args, 'decoder_layers', 6)
+
+    args.attention_dropout = getattr(args, 'attention_dropout', 0.)
+    args.activation_dropout = getattr(args, 'activation_dropout', 0.)
+    args.dropout = getattr(args, 'dropout', 0.)
+
     base_multilingual_architecture(args)

@@ -224,12 +224,19 @@ class Trainer(object):
         if self.args.layerwise_dds:
             self._build_transformer_optimizer_list()
             return
-        params = list(
-            filter(
-                lambda p: p.requires_grad,
-                chain(self.model.parameters(), self.criterion.parameters()),
+        if self.args.only_optim_model_key is not None:
+            params = []
+            for p in self.model.models[self.args.only_optim_model_key].parameters():
+                if p.requires_grad: params.append(p)
+            for p in self.criterion.parameters():
+                if p.requires_grad: params.append(p)
+        else:
+            params = list(
+                filter(
+                    lambda p: p.requires_grad,
+                    chain(self.model.parameters(), self.criterion.parameters()),
+                )
             )
-        )
 
         if self.args.fp16:
             if self.cuda and torch.cuda.get_device_capability(0)[0] < 7:
@@ -1044,7 +1051,7 @@ class Trainer(object):
                     loss, sample_size, logging_output, loss_data, dev_grad_dotprod = self.task.train_step(
                         sample, self.model, self.criterion, self.optimizer,
                         ignore_grad,
-                        data_score=val_loss_data, 
+                        #val_loss_data=val_loss_data, 
                     )
                     if dev_grad_dotprod is not None:
                         data_ids = sample["id"].cpu().data

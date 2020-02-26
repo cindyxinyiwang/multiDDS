@@ -337,6 +337,8 @@ def get_parser(desc, default_task='translation'):
     parser.add_argument('--reward-level', type=str, default="sent")
     parser.add_argument('--reward-constant', type=float, default=0.01)
 
+    parser.add_argument('--only-optim-model-key', type=str, default=None)
+
     from fairseq.registry import REGISTRIES
     for registry_name, REGISTRY in REGISTRIES.items():
         parser.add_argument(
