@@ -411,13 +411,15 @@ class BtTranslationTask(MultilingualTranslationTask):
                 #src, tgt = lang_pair.split("-")
                 #bt_lang_pair = tgt + "-" + src
                 reward = dev_grad_dotprod / eta
-                if self.baseline is None:
-                    #self.baseline = (reward.sum()/reward.size()[0]).item()
-                    self.baseline = 0
-                else:
-                    self.baseline = self.baseline - 0.001 * (self.baseline - (reward.sum()/reward.size()[0]).item())
-                reward = reward - self.baseline
-                reward = reward * 0.0001
+                if self.args.baseline:
+                    if self.baseline is None:
+                        #self.baseline = (reward.sum()/reward.size()[0]).item()
+                        self.baseline = 0
+                    else:
+                        self.baseline = self.baseline - 0.001 * (self.baseline - (reward.sum()/reward.size()[0]).item())
+                    reward = reward - self.baseline
+                #reward = reward * 0.0001
+                reward = reward * self.args.reward_scale
 
                 loss, _, logging_output, val_loss_data, _ = criterion(model.models[bt_lang_pair], sample[sample_key][1], data_score=reward, loss_copy=False)
                 loss = loss * self.lambda_denoising

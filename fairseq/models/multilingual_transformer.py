@@ -265,8 +265,8 @@ def multilingual_transformer_iwslt_de_en(args):
     args.decoder_attention_heads = getattr(args, 'decoder_attention_heads', 4)
     args.decoder_layers = getattr(args, 'decoder_layers', 6)
 
-    args.attention_dropout = getattr(args, 'attention_dropout', 0.)
-    args.activation_dropout = getattr(args, 'activation_dropout', 0.)
-    args.dropout = getattr(args, 'dropout', 0.)
+    #args.attention_dropout = getattr(args, 'attention_dropout', 0.)
+    #args.activation_dropout = getattr(args, 'activation_dropout', 0.)
+    #args.dropout = getattr(args, 'dropout', 0.)
 
     base_multilingual_architecture(args)

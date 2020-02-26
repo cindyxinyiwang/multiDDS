@@ -56,8 +56,10 @@ def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=None, reduce=T
 
     nll_loss = -lprobs.gather(dim=-1, index=target)
     if data_score is not None:
-        reward = torch.nn.functional.relu(data_score.data)
-        #reward = data_score.data
+        if args.relu_reward:
+            reward = torch.nn.functional.relu(data_score.data)
+        else:
+            reward = data_score.data
         print(reward)
         nll_loss = nll_loss.view(B, -1) * reward
         nll_loss = nll_loss.view(-1, 1)
