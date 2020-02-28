@@ -18,8 +18,13 @@ def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=None, reduce=T
     if loss_copy:
         # keep a copy of nll_loss data
         # lprobs: [BT X VSIZE]
-        nll_loss_data = -lprobs.gather(dim=-1, index=target).data.clone()
+        #nll_loss_data = -lprobs.gather(dim=-1, index=target).data.clone()
+        nll_loss_data = -lprobs.gather(dim=-1, index=target)
         # nll_loss_data: [BT X 1]
+        if ignore_index is not None:
+            pad_mask = target.eq(ignore_index)
+            nll_loss_data.masked_fill_(pad_mask, 0.)
+        nll_loss_data = nll_loss_data.view(B, T)
     else:
         nll_loss_data = None
 

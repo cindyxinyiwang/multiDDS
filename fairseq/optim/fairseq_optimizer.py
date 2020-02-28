@@ -412,6 +412,16 @@ class FairseqOptimizer(object):
                 state = self.optimizer.state[p]
                 p.data += state['new_grad']*eta
 
+    def get_jvp_loss(self):
+        """Get dot product between current grad and new grad"""
+        dotprod = 0
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                if p.grad is None: continue
+                state = self.optimizer.state[p]
+                dotprod += (state["new_grad"]*p.grad).sum()
+        return dotprod
+
     def add_grad(self, eta):
         """add grad to current param"""
         for group in self.optimizer.param_groups:
