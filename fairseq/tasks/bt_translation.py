@@ -300,6 +300,9 @@ class BtTranslationTask(MultilingualTranslationTask):
                     beam_size=args.bt_beam_size,
                     max_len_a=args.bt_max_len_a,
                     max_len_b=args.bt_max_len_b,
+                    sampling=self.args.sampling,
+                    sampling_topk=self.args.sampling_topk,
+                    temperature=self.args.temperature,
                 )
                 decoder_lang_tok_idx = self.get_decoder_langtok(src)
 
@@ -312,8 +315,6 @@ class BtTranslationTask(MultilingualTranslationTask):
                         [model],
                         sample,
                         bos_token=bos_token,
-                        sampling=self.args.sampling,
-                        sampling_topk=self.args.sampling_topk,
                     )
                 self.backtranslators[lang_pair] = backtranslate_fn
 
