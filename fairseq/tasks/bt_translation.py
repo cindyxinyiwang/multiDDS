@@ -121,6 +121,7 @@ class BtTranslationTask(MultilingualTranslationTask):
                             help='word blanking probability for denoising autoencoding data generation')
         # fmt: on
         parser.add_argument('--bt_dds', action='store_true')
+        parser.add_argument('--noise_bt_dds', action='store_true')
 
     def __init__(self, args, dicts, training):
         super().__init__(args, dicts, training)
@@ -226,6 +227,7 @@ class BtTranslationTask(MultilingualTranslationTask):
                     backtranslation_fn=self.backtranslators[lang_pair],
                     src_dict=self.dicts[src], tgt_dict=self.dicts[tgt],
                     output_collater=language_pair_dataset(lang_pair).collater,
+                    noising=self.args.noise_bt_dds,
                 )
                 print('| backtranslate-{}: {} {} {} examples'.format(
                     tgt, data_path, split, len(backtranslate_datasets[lang_pair]),

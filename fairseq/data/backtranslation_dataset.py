@@ -105,6 +105,7 @@ class BacktranslationDataset(FairseqDataset):
         output_collater=None,
         backward_output_collater=None,
         cuda=True,
+        noising=False,
         **kwargs
     ):
         self.tgt_dataset = tgt_dataset
@@ -116,8 +117,10 @@ class BacktranslationDataset(FairseqDataset):
         self.cuda = cuda if torch.cuda.is_available() else False
         self.src_dict = src_dict
         self.tgt_dict = tgt_dict
-        #self.noising = UnsupervisedMTNoising(self.src_dict, max_word_shuffle_distance=5, word_dropout_prob=0.2, word_blanking_prob=0.2, bpe_cont_marker="▁")
-        self.noising = None
+        if noising:
+            self.noising = UnsupervisedMTNoising(self.src_dict, max_word_shuffle_distance=0, word_dropout_prob=0.1, word_blanking_prob=0.1, bpe_cont_marker="▁")
+        else:
+            self.noising = None
 
     def __getitem__(self, index):
         """
