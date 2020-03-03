@@ -133,6 +133,7 @@ def train(args, trainer, task, epoch_itr, generator=None, filtered_maxpos_indice
     else:
         num_reset = 1
         datasize = -1
+
     for reset_idx in range(num_reset):
         print("resetting at step", reset_idx)
         # Initialize data iterator
@@ -148,7 +149,6 @@ def train(args, trainer, task, epoch_itr, generator=None, filtered_maxpos_indice
         )
 
         for i, samples in enumerate(progress, start=epoch_itr.iterations_in_epoch):
-            #print(samples)
             if args.extra_data_actor == 'ave_emb':
                 update_actor = (i % args.extra_update_language_sampling == 0)
             elif args.data_actor_step_update:
@@ -335,7 +335,7 @@ def validate_translation(args, trainer, task, epoch_itr, generator):
         shard_id=args.distributed_rank,
         num_workers=args.num_workers,
         noskip=True,
-    ).next_epoch_itr(shuffle=False)
+    )[0].next_epoch_itr(shuffle=False)
     progress = progress_bar.build_progress_bar(
         args, itr, epoch_itr.epoch,
         prefix='translate subset',
@@ -393,31 +393,31 @@ def validate_translation(args, trainer, task, epoch_itr, generator):
                         remove_bpe=args.remove_bpe,
                     )
 
-                #if not args.quiet:
-                #    print('H-{}\t{}\t{}'.format(sample_id, hypo['score'], hypo_str))
-                #    print('P-{}\t{}'.format(
-                #        sample_id,
-                #        ' '.join(map(
-                #            lambda x: '{:.4f}'.format(x),
-                #            hypo['positional_scores'].tolist(),
-                #        ))
-                #    ))
+                    #if not args.quiet:
+                    #    print('H-{}\t{}\t{}'.format(sample_id, hypo['score'], hypo_str))
+                    #    print('P-{}\t{}'.format(
+                    #        sample_id,
+                    #        ' '.join(map(
+                    #            lambda x: '{:.4f}'.format(x),
+                    #            hypo['positional_scores'].tolist(),
+                    #        ))
+                    #    ))
 
-                #    if args.print_alignment:
-                #        print('A-{}\t{}'.format(
-                #            sample_id,
-                #            ' '.join(map(lambda x: str(utils.item(x)), alignment))
-                #        ))
-
-                # Score only the top hypothesis
-                if has_target and j == 0:
-                    if args.remove_bpe is not None:
-                        # Convert back to tokens for evaluation with unk replacement and/or without BPE
-                        target_tokens = tgt_dict.encode_line(target_str, add_if_not_exist=True)
-                    if hasattr(scorer_dict[key], 'add_string'):
-                        scorer_dict[key].add_string(target_str, hypo_str)
-                    else:
-                        scorer_dict[key].add(target_tokens, hypo_tokens)
+                    #    if args.print_alignment:
+                    #        print('A-{}\t{}'.format(
+                    #            sample_id,
+                    #            ' '.join(map(lambda x: str(utils.item(x)), alignment))
+                    #        ))
+                    #print(has_target, j, hypo_str)
+                    # Score only the top hypothesis
+                    if has_target and j == 0:
+                        if args.remove_bpe is not None:
+                            # Convert back to tokens for evaluation with unk replacement and/or without BPE
+                            target_tokens = tgt_dict.encode_line(target_str, add_if_not_exist=True)
+                        if hasattr(scorer_dict[key], 'add_string'):
+                            scorer_dict[key].add_string(target_str, hypo_str)
+                        else:
+                            scorer_dict[key].add(target_tokens, hypo_tokens)
 
             num_sentences += sample['nsentences']
     for key, scorer in scorer_dict.items():
