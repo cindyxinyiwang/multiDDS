@@ -264,6 +264,8 @@ def get_parser(desc, default_task='translation'):
                         help='whether to scale reward by current p')
     parser.add_argument('--relu-reward', action='store_true',
                         help='whether to relu the reward')
+    parser.add_argument('--discount-reward', type=float, default=-1,
+                        help='discount factor for reward')
     parser.add_argument('--reward-scale', type=float, default=0.0001,
                         help='scale factor of the reward')
     parser.add_argument('--language-weight', type=str, default=None,

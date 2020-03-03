@@ -122,6 +122,7 @@ class BtTranslationTask(MultilingualTranslationTask):
         # fmt: on
         parser.add_argument('--bt_dds', action='store_true')
         parser.add_argument('--noise_bt_dds', action='store_true')
+        parser.add_argument('--bt_parallel_update', default=0., type=float)
 
     def __init__(self, args, dicts, training):
         super().__init__(args, dicts, training)
@@ -155,9 +156,20 @@ class BtTranslationTask(MultilingualTranslationTask):
             elif not self.args.raw_text and IndexedDataset.exists(filename):
                 return True
             return False
+        if split == 'train' and self.args.bt_parallel_update > 0:
+            lang_pairs = []
+            copied_lang_pairs = [p  for p in self.lang_pairs]
+            for lang_pair in copied_lang_pairs:
+                src, tgt = lang_pair.split('-')
+                key = '{}-{}'.format(tgt, src)
+                lang_pairs.append(key) 
+                lang_pairs.append(lang_pair) 
+        else:
+            lang_pairs = self.lang_pairs
+
         # load parallel datasets
         src_datasets, tgt_datasets = {}, {}
-        for lang_pair in self.lang_pairs:
+        for lang_pair in lang_pairs:
             src, tgt = lang_pair.split('-')
             if split_exists(split, src, tgt, src):
                 prefix = os.path.join(data_path, '{}.{}-{}.'.format(split, src, tgt))
@@ -372,16 +384,6 @@ class BtTranslationTask(MultilingualTranslationTask):
             loss, sample_size, logging_output, nll_loss_data, dev_grad_dotprod = criterion(model.models[lang_pair], sample[sample_key][0], val_loss_data=None, loss_copy=True)
             
             if self.args.bt_dds:
-                ### debug
-                #params = [torch.nn.Parameter(torch.ones(5).view(-1, 1))]
-                #loss = torch.mm(torch.ones(sample_size, 5), params[-1]).sum() 
-                #pgrad = torch.autograd.grad(loss, params, grad_outputs=z, create_graph=True, retain_graph=True)
-                #for pg in pgrad:
-                #    grad = torch.autograd.grad(pg.sum(), z, create_graph=True)
-                #    print(grad)
-                #    print(sample_size)
-                #    exit(0)
-
                 # B X T
                 nll_loss = nll_loss_data.sum(dim=1) / sample_size
                 z = torch.ones_like(nll_loss).requires_grad_(True)
@@ -421,10 +423,11 @@ class BtTranslationTask(MultilingualTranslationTask):
                 loss = loss * self.lambda_denoising
                 #loss = loss * 0
                 loss.backward()
-                self.data_optimizer.step()
-                self.data_optimizer.zero_grad()
-                #print(self.lambda_denoising)
                 agg_logging_output[bt_lang_pair] = logging_output
+                if self.args.bt_parallel_update > 0:
+                    loss, _, logging_output, val_loss_data, _ = criterion(model.models[bt_lang_pair], sample[bt_lang_pair], data_score=reward, loss_copy=False)
+                    loss = loss * self.args.bt_parallel_update
+                    loss.backward()
                    
         return agg_loss, agg_sample_size, agg_logging_output, None, None
 
@@ -546,6 +549,8 @@ class BtTranslationTask(MultilingualTranslationTask):
             self.lambda_otf_bt = lambda_step_func(self.lambda_otf_bt_steps, num_updates)
         if self.lambda_denoising_steps is not None:
             self.lambda_denoising = lambda_step_func(self.lambda_denoising_steps, num_updates)
+        self.data_optimizer.step()
+        self.data_optimizer.zero_grad()
 
     def aggregate_logging_outputs(self, logging_outputs, criterion):
         # aggregate logging outputs for each language pair

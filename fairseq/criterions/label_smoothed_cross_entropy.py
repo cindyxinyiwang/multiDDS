@@ -65,6 +65,15 @@ def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=None, reduce=T
             reward = torch.nn.functional.relu(data_score.data)
         else:
             reward = data_score.data
+        if args.discount_reward > 0:
+            discount = [1]
+            for i in range(1, T):
+                discount.append(discount[-1] * args.discount_reward)
+            discount.reverse()
+            discount = torch.FloatTensor([discount])
+            if reward.is_cuda:
+                discount = discount.cuda()
+            reward = reward.repeat(1, T) * discount
         print(reward)
         nll_loss = nll_loss.view(B, -1) * reward
         nll_loss = nll_loss.view(-1, 1)
