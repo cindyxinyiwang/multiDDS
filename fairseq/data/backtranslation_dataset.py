@@ -118,7 +118,8 @@ class BacktranslationDataset(FairseqDataset):
         self.src_dict = src_dict
         self.tgt_dict = tgt_dict
         if noising:
-            self.noising = UnsupervisedMTNoising(self.src_dict, max_word_shuffle_distance=0, word_dropout_prob=0.1, word_blanking_prob=0.1, bpe_cont_marker="▁")
+            #self.noising = UnsupervisedMTNoising(self.src_dict, max_word_shuffle_distance=0, word_dropout_prob=0.1, word_blanking_prob=0.1, bpe_cont_marker="▁")
+            self.noising = UnsupervisedMTNoising(self.src_dict, max_word_shuffle_distance=5, word_dropout_prob=0.2, word_blanking_prob=0.2, bpe_cont_marker="▁")
         else:
             self.noising = None
 
