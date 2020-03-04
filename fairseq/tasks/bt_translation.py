@@ -123,6 +123,10 @@ class BtTranslationTask(MultilingualTranslationTask):
         parser.add_argument('--bt_dds', action='store_true')
         parser.add_argument('--noise_bt_dds', action='store_true')
         parser.add_argument('--bt_parallel_update', default=0., type=float)
+        
+        parser.add_argument('--bt-optimizer', default="SGD", type=str, help="[SGD|ASGD]")
+        parser.add_argument('--bt-optimizer-nesterov', action='store_true')
+        parser.add_argument('--bt-optimizer-momentum', default=0., type=float)
 
     def __init__(self, args, dicts, training):
         super().__init__(args, dicts, training)
@@ -301,7 +305,10 @@ class BtTranslationTask(MultilingualTranslationTask):
                 bt_lang_pair = _get_dds_bt_key(lang_pair)
                 for p in model.models[bt_lang_pair].parameters():
                     if p.requires_grad: bt_params.append(p)
-            self.data_optimizer = torch.optim.SGD(bt_params, lr=self.args.data_actor_lr[0])
+            if self.args.bt_optimizer == "SGD":
+                self.data_optimizer = torch.optim.SGD(bt_params, lr=self.args.data_actor_lr[0], momentum=self.args.bt_optimizer_momentum, nesterov=self.args.nesterov)
+            elif self.args.bt_optimizer == "ASGD":
+                self.data_optimizer = torch.optim.ASGD(bt_params, lr=self.args.data_actor_lr[0])
         # create SequenceGenerator for each model that has backtranslation dependency on it
         self.sequence_generators = {}
         #if (self.lambda_otf_bt > 0.0 or self.lambda_otf_bt_steps is not None) and self.training:
