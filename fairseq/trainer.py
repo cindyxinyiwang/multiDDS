@@ -772,23 +772,7 @@ class Trainer(object):
     
                     optimizer.switch_param()
                 optimizer.switch_param(clear_cache=True)
-                # logging
-                # first log regular dds
-                #print("regular dds reward:")
-                #print(" ".join([str(s) for s in sim_list]))
-                #print("regular dds norm:")
-                #print(" ".join([str(s.item()) for s in norm_list]))
-                # second log new dds
-                #all_sim_list = np.transpose(np.array(all_sim_list))
-                #all_norm_list = np.transpose(np.array(all_norm_list))
-                #print("new dds reward list:")
-                #for l in all_sim_list:
-                #    print(" ".join([str(s) for s in l]))
-                #print("new dds norm:")
-                #for l in all_norm_list:
-                #    print(" ".join([str(s.item()) for s in l]))
-                #print("new dds reward list:")
-                #print(" ".join([str(s) for s in np.mean(all_sim_list, axis=0)]))
+
                 if self.args.tensorwise_dds:
                     optimizer.update_lan_probs()
                     sim_list = optimizer.aggregate_lan_probs()

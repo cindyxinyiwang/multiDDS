@@ -306,7 +306,7 @@ class BtTranslationTask(MultilingualTranslationTask):
                 for p in model.models[bt_lang_pair].parameters():
                     if p.requires_grad: bt_params.append(p)
             if self.args.bt_optimizer == "SGD":
-                self.data_optimizer = torch.optim.SGD(bt_params, lr=self.args.data_actor_lr[0], momentum=self.args.bt_optimizer_momentum, nesterov=self.args.nesterov)
+                self.data_optimizer = torch.optim.SGD(bt_params, lr=self.args.data_actor_lr[0], momentum=self.args.bt_optimizer_momentum, nesterov=self.args.bt_optimizer_nesterov)
             elif self.args.bt_optimizer == "ASGD":
                 self.data_optimizer = torch.optim.ASGD(bt_params, lr=self.args.data_actor_lr[0])
         # create SequenceGenerator for each model that has backtranslation dependency on it
