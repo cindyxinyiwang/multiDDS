@@ -549,8 +549,9 @@ class BtTranslationTask(MultilingualTranslationTask):
             self.lambda_otf_bt = lambda_step_func(self.lambda_otf_bt_steps, num_updates)
         if self.lambda_denoising_steps is not None:
             self.lambda_denoising = lambda_step_func(self.lambda_denoising_steps, num_updates)
-        self.data_optimizer.step()
-        self.data_optimizer.zero_grad()
+        if self.args.bt_dds:
+            self.data_optimizer.step()
+            self.data_optimizer.zero_grad()
 
     def aggregate_logging_outputs(self, logging_outputs, criterion):
         # aggregate logging outputs for each language pair
