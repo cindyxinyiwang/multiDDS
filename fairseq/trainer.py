@@ -331,6 +331,10 @@ class Trainer(object):
                 else:
                     data_actor_state = self.data_actor.state_dict()
                     data_optimizer_state = self.data_optimizer.state_dict()
+            if hasattr(self.task, 'data_optimizer'):
+                bt_data_optimizer_state = self.task.data_optimizer.state_dict() 
+            else:
+                bt_data_optimizer_state = None
             
             if self.args.layerwise_dds:
                 optimizer = self.optimizer[0]
@@ -342,7 +346,7 @@ class Trainer(object):
             checkpoint_utils.save_state(
                 filename, self.args, self.get_model().state_dict(), self.get_criterion(),
                 self.optimizer, self.lr_scheduler, self.get_num_updates(),
-                self._optim_history, extra_state, data_actor_state, data_optimizer_state,
+                self._optim_history, extra_state, data_actor_state, data_optimizer_state, bt_data_optimizer_state_dict=bt_data_optimizer_state
             )
 
     def load_checkpoint(
@@ -404,6 +408,9 @@ class Trainer(object):
                     self.extra_data_actor.load_state_dict(state['extra_data_actor'])
                 if 'extra_data_optimizer' in state and state['extra_data_optimizer']:
                     self.extra_data_optimizer.load_state_dict(state['extra_data_optimizer'])
+                if 'bt_data_optimizer' in state and state['bt_data_optimizer'] and hasattr(task, "data_optimizer"):
+                    print("loading bt_data_optimizer...")
+                    self.task.data_optimizer.load_state_dict(state['bt_data_optimizer'])
 
             if last_optim_state is not None and not reset_optimizer:
                 # rebuild optimizer after loading model, since params may have changed

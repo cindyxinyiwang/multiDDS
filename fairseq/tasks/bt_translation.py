@@ -260,6 +260,7 @@ class BtTranslationTask(MultilingualTranslationTask):
                 for lang_pair, dataset in backtranslate_datasets.items()
             ]),
             eval_key=None if self.training else "%s-%s" % (self.args.source_lang, self.args.target_lang),
+            upsample_factor=self.args.upsample_factor,
         )
         if split == 'valid' and self.args.bt_dds:
             if self.args.max_tokens_valid is not None:
@@ -367,7 +368,8 @@ class BtTranslationTask(MultilingualTranslationTask):
         self.lambda_parallel = 1.
         self.lambda_otf_bt = 1.
         for lang_pair in self.lang_pairs:
-            forward_backward(model.models[lang_pair], sample[lang_pair], lang_pair, self.lambda_parallel)
+            if lang_pair in sample:
+                forward_backward(model.models[lang_pair], sample[lang_pair], lang_pair, self.lambda_parallel)
  
         #if self.lambda_otf_bt > 0.0:
         for lang_pair in self.lang_pairs:
