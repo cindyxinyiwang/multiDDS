@@ -163,6 +163,10 @@ class Trainer(object):
         if args.proj_lan_id is not None:
             self.args.proj_lan_id = [int(w) for w in args.proj_lan_id.split(",")] 
         self.idx_to_dev_grad_dotprod = {}
+        if args.score_log is not None:
+            self.score_log = open(args.score_log, 'w')
+        else:
+            self.score_log = None
 
     def init_meters(self, args):
         self.meters = OrderedDict()
@@ -954,7 +958,7 @@ class Trainer(object):
             data_filter_percentage=self.args.data_filter_percentage,
         )
 
-    def train_step(self, samples, dummy_batch=False, raise_oom=False, update_actor=True):
+    def train_step_new(self, samples, dummy_batch=False, raise_oom=False, update_actor=True):
         """Do forward, backward and parameter update."""
         if self._dummy_batch is None:
             self._dummy_batch = samples[0]
@@ -1159,7 +1163,7 @@ class Trainer(object):
         self.meters['train_wall'].stop()
         return logging_output
 
-    def train_step_old(self, samples, dummy_batch=False, raise_oom=False, update_actor=True):
+    def train_step(self, samples, dummy_batch=False, raise_oom=False, update_actor=True):
         """Do forward, backward and parameter update."""
         if self._dummy_batch is None:
             self._dummy_batch = samples[0]
@@ -1172,109 +1176,62 @@ class Trainer(object):
         if not dummy_batch:
             self.meters['train_wall'].start()
 
-        if self.args.proj_grad:
-            if self.args.proj_lan_id:
-                task_ids = self.args.proj_lan_id
-                random.shuffle(task_ids)
-                #train_lan_id_i = self.task.langpair2id[list(samples[0].keys())[0]]
-                #if train_lan_id_i in task_ids:
-                #    task_ids.remove(train_lan_id_i)
-            else:
-                train_lan_id_i = self.task.langpair2id[list(samples[0].keys())[0]]
-                task_ids = [i for i in range(len(self.task.lang_pairs))]
-                #task_ids.remove(train_lan_id_i)
-                random.shuffle(task_ids)
-                task_ids = task_ids[:self.args.sample_proj_count]
-            if self.args.remove_sample_id:
-                for sample in samples:
-                    train_lan_id = self.task.langpair2id[list(sample.keys())[0]]
-                    if train_lan_id in task_ids:
-                        task_ids.remove(train_lan_id)
-            if not self.args.save_proj_train:
-                for idx in task_ids:
-                    valid_sample = self.task.dataset('train').get_sample_with_key(self.task.lang_pairs[idx], num=self.args.num_dev_samples)
-                    valid_sample = self._prepare_sample(valid_sample)
-                    # calculate sim
-                    loss, sample_size, logging_output, _ = self.task.train_step(
-                                            valid_sample, self.model, self.criterion, self.optimizer)
-                    if self.args.layerwise_dds:
-                        for optimizer in self.optimizer:
-                            optimizer.save_proj_grad_id(idx)
-                    else:
-                        self.optimizer.save_proj_grad_id(idx)
-                    if not self.args.train_on_proj:
-                        self.zero_grad()
-
         self.optimizer.clone_param()
-        #if self.args.data_actor_step_update and update_actor:
-        #    self.optimizer.clone_param()
-        #    data_actor_out = []
-        #    pad_masks = []
-        #    tgt_lens = []
-        #    data_actor_proj_out = []
-        #    normed_data_score = []
-        #    cached_loss = []
-        #    trained_sample_idx = []
-        #    example_size = []
-        #    if self.args.out_score_type == "word_score":
-        #        score_sum, word_size = 0, 0 
-        #        for i, sample in enumerate(samples):
-        #            sample = self._prepare_sample(sample)
-        #            out, pad_mask, trg_len = self.data_actor(sample)
-        #            data_actor_out.append(out)
-        #            pad_masks.append(pad_mask)
-        #            #normed_data_score.append(torch.exp(out.data*0.1).masked_fill_(pad_mask, 0.))
-        #            normed_data_score.append(torch.exp(out.data*self.args.exp_constant).masked_fill_(pad_mask, 0.))
-        #            e_size = sample['nsentences']
-        #            example_size.append(e_size)
-        #            score_sum = score_sum + normed_data_score[-1].sum().item()
-        #            tgt_lens.append(trg_len.sum().item())
-        #            word_size = word_size + tgt_lens[-1]
-        #        for i, out in enumerate(normed_data_score):
-        #            normed_data_score[i] = (out.data / score_sum * word_size)
-        #        #print(normed_data_score)
-        #    elif self.args.out_score_type == "proj_word_score":
-        #        score_sum, word_size = 0, 0 
-        #        for i, sample in enumerate(samples):
-        #            sample = self._prepare_sample(sample)
-        #            out, pad_mask, trg_len, proj_out = self.data_actor(sample)
-        #            data_actor_out.append(out)
-        #            pad_masks.append(pad_mask)
-        #            data_actor_proj_out.append(proj_out)
-        #            normed_data_score.append(out.data.masked_fill_(pad_mask, 0.))
-        #            e_size = sample['nsentences']
-        #            example_size.append(e_size)
-        #            score_sum = score_sum + normed_data_score[-1].sum().item()
-        #            tgt_lens.append(trg_len.sum().item())
-        #            word_size = word_size + tgt_lens[-1]
-        #        for i, out in enumerate(normed_data_score):
-        #            #normed_data_score[i] = (out.data / score_sum * word_size)
-        #            normed_data_score[i] = (out.data + self.args.data_actor_proj_post_bias)
-        #    else:
-        #        for i, sample in enumerate(samples):
-        #            sample = self._prepare_sample(sample)
-        #            out, pad_mask, trg_len = self.data_actor(sample)
-        #            data_actor_out.append(out)
-        #            pad_masks.append(pad_mask)
-        #            e_size = sample['nsentences']
-        #            example_size.append(e_size)
-        #            if self.args.out_score_type == "tanh":
-        #                normed_data_score.append(torch.softmax(data_actor_out[-1], dim=0) * e_size)
-        #        if self.args.out_score_type == "sigmoid":
-        #            total_example_size = sum(example_size)
-        #            data_score_sum = data_actor_out[0].sum()
-        #            for out in data_actor_out[1:]:
-        #                data_score_sum = data_score_sum + out.sum()
-        #            for out in data_actor_out:
-        #                normed_data_score.append(out/data_score_sum * total_example_size)
-        #        #example_size.append(sample['nsentences'])
-        #    #normed_score = torch.softmax(torch.cat(data_actor_out, dim=0), dim=0) * sum(example_size)
-        #    #start = 0
-        #    #for i, size in enumerate(example_size):
-        #    #    normed_data_score.append(normed_score[start:start+size])
-        #    #    start = start + size
-        #else:
-        #    normed_data_score = [None for _ in range(len(samples))]
+        if self.args.data_actor_step_update and update_actor:
+            self.optimizer.clone_param()
+            data_actor_out = []
+            pad_masks = []
+            tgt_lens = []
+            data_actor_proj_out = []
+            normed_data_score = []
+            cached_loss = []
+            trained_sample_idx = []
+            example_size = []
+            if self.args.out_score_type == "word_score":
+                score_sum, word_size = 0, 0 
+                for i, sample in enumerate(samples):
+                    sample = self._prepare_sample(sample)
+                    out, pad_mask, trg_len = self.data_actor(sample)
+                    data_actor_out.append(out)
+                    pad_masks.append(pad_mask)
+                    #normed_data_score.append(torch.exp(out.data*0.1).masked_fill_(pad_mask, 0.))
+                    normed_data_score.append(torch.exp(out.data*self.args.exp_constant).masked_fill_(pad_mask, 0.))
+                    e_size = sample['nsentences']
+                    example_size.append(e_size)
+                    score_sum = score_sum + normed_data_score[-1].sum().item()
+                    tgt_lens.append(trg_len.sum().item())
+                    word_size = word_size + tgt_lens[-1]
+                for i, out in enumerate(normed_data_score):
+                    normed_data_score[i] = (out.data / score_sum * word_size)
+                #print(normed_data_score)
+            elif self.args.out_score_type == "proj_word_score":
+                score_sum, word_size = 0, 0 
+                for i, sample in enumerate(samples):
+                    sample = self._prepare_sample(sample)
+                    out, pad_mask, trg_len, proj_out = self.data_actor(sample)
+                    data_actor_out.append(out)
+                    pad_masks.append(pad_mask)
+                    data_actor_proj_out.append(proj_out)
+                    normed_data_score.append(out.data.masked_fill_(pad_mask, 0.))
+                    e_size = sample['nsentences']
+                    example_size.append(e_size)
+                    score_sum = score_sum + normed_data_score[-1].sum().item()
+                    tgt_lens.append(trg_len.sum().item())
+                    word_size = word_size + tgt_lens[-1]
+                for i, out in enumerate(normed_data_score):
+                    #normed_data_score[i] = (out.data / score_sum * word_size)
+                    normed_data_score[i] = (out.data + self.args.data_actor_proj_post_bias)
+            else:
+                for i, sample in enumerate(samples):
+                    sample = self._prepare_sample(sample)
+                    out, pad_mask, trg_len = self.data_actor(sample)
+                    data_actor_out.append(out)
+                    pad_masks.append(pad_mask)
+                    e_size = sample['nsentences']
+                    example_size.append(e_size)
+                    normed_data_score.append(torch.softmax(data_actor_out[-1], dim=0) * e_size)
+        else:
+            normed_data_score = [None for _ in range(len(samples))]
 
         # forward and backward pass
         logging_outputs, sample_sizes, ooms = [], [], 0
@@ -1306,66 +1263,49 @@ class Trainer(object):
             try:
                 with maybe_no_sync():
                     # forward and backward
-                    #loss, sample_size, logging_output = self.task.train_step(
-                    #    sample, self.model, self.criterion, self.optimizer,
-                    #    ignore_grad, data_actor=data_actor, 
-                    #    loss_copy=cached_loss, data_actor_out=data_actor_out,
-                    #)
-                    if hasattr(self, 'dev_itr'):
-                        #self.optimizer.save_train_grad()
-                        #self.zero_grad()
-                        if self.dev_itr.end_of_epoch():
-                            self.dev_itr.next_epoch_itr(shuffle=True)
-                        for valid_sample in self.dev_itr._cur_epoch_itr:
-                            valid_sample = self._prepare_sample(valid_sample)
-                            _loss, _sample_size, _logging_output, _ = self.task.train_step(
-                                                    valid_sample, self.model, self.criterion, self.optimizer)
-                            v_sample_size = _sample_size
-                            break
-                        self.optimizer.multiply_grads(1. / float(v_sample_size))
-                        self.optimizer.save_dev_grad()
-                        # get per example reward
-                        #with torch.no_grad():
-                        eta = 0.0001
-                        self.optimizer.add_grad(eta=eta)
-                        loss, sample_size, logging_output, val_loss_data = self.task.train_step(
-                            sample, self.model, self.criterion, self.optimizer,
-                            ignore_grad=True, 
-                            loss_copy=True,
-                        )
-                        self.zero_grad()
-                        #self.optimizer.set_train_grad()
-                        #reward = 1./eta * (val_loss_data - cached_loss[i]) * self.optimizer.get_lr() 
-                        #reward = reward.view(sample['nsentences'], -1)
-                        self.optimizer.switch_param()
-                    else:
-                        val_loss_data = None
-                    loss, sample_size, logging_output, loss_data = self.task.train_step(
+                    #if hasattr(self, 'dev_itr'):
+                    #    #self.optimizer.save_train_grad()
+                    #    #self.zero_grad()
+                    #    if self.dev_itr.end_of_epoch():
+                    #        self.dev_itr.next_epoch_itr(shuffle=True)
+                    #    for valid_sample in self.dev_itr._cur_epoch_itr:
+                    #        valid_sample = self._prepare_sample(valid_sample)
+                    #        _loss, _sample_size, _logging_output, _ = self.task.train_step(
+                    #                                valid_sample, self.model, self.criterion, self.optimizer)
+                    #        v_sample_size = _sample_size
+                    #        break
+                    #    self.optimizer.multiply_grads(1. / float(v_sample_size))
+                    #    self.optimizer.save_dev_grad()
+                    #    # get per example reward
+                    #    #with torch.no_grad():
+                    #    eta = 0.0001
+                    #    self.optimizer.add_grad(eta=eta)
+                    #    loss, sample_size, logging_output, val_loss_data = self.task.train_step(
+                    #        sample, self.model, self.criterion, self.optimizer,
+                    #        ignore_grad=True, 
+                    #        loss_copy=True,
+                    #    )
+                    #    self.zero_grad()
+                    #    #self.optimizer.set_train_grad()
+                    #    #reward = 1./eta * (val_loss_data - cached_loss[i]) * self.optimizer.get_lr() 
+                    #    #reward = reward.view(sample['nsentences'], -1)
+                    #    self.optimizer.switch_param()
+                    #else:
+                    #    val_loss_data = None
+                    loss, sample_size, logging_output, loss_data, _ = self.task.train_step(
                         sample, self.model, self.criterion, self.optimizer,
                         ignore_grad,
-                        data_score=val_loss_data, 
+                        data_score=normed_data_score[i],
+                        loss_copy=(normed_data_score[i] is not None)
                     )
-                    #    data_score=normed_data_score[i],
-                    #if normed_data_score[i] is not None:
-                    #    cached_loss.append(loss_data)
-                    #    trained_sample_idx.append(i)
-                    #    print(normed_data_score[i])
-                    #    #print("before", sample_size)
-                    #    #sample_size = normed_data_score[i].sum().item() / tgt_lens[i] * sample_size
-                    #    #print("after", sample_size)
-                    # actually saving training grad
-                    if self.args.data_actor == 'lan' and update_actor:
-                        if len(samples) > 1:
-                            if i == len(samples)-2:
-                                self.optimizer.save_train_grad_t0()
-                            elif i == len(samples)-1:
-                                self.optimizer.save_train_grad()
-                        else:
-                            self.optimizer.save_train_grad_t0()
-                    if self.args.discount_grad or self.args.save_proj_train:
-                        train_lan_id = self.task.langpair2id[list(sample.keys())[0]]
-                        self.optimizer.save_train_grad_id(train_lan_id)
-                        
+                    #    data_score=val_loss_data, 
+                    if normed_data_score[i] is not None:
+                        cached_loss.append(loss_data.data)
+                        trained_sample_idx.append(i)
+                        #print(normed_data_score[i])
+                        #print("before", sample_size)
+                        #sample_size = normed_data_score[i].sum().item() / tgt_lens[i] * sample_size
+                        #print("after", sample_size)
                 if not ignore_grad:
                     logging_outputs.append(logging_output)
                     sample_sizes.append(sample_size)
@@ -1436,52 +1376,6 @@ class Trainer(object):
             ).format(self.task.__class__.__name__))
 
         try:
-            if self.args.layerwise_dds:
-                if len(self.cur_data_actor_probs) == 0:
-                    optim_weights = [1 for _ in range(len(self.optimizer))]
-                else:
-                    train_lan_id = self.task.langpair2id[list(sample.keys())[0]]
-                    optim_weights = self.cur_data_actor_probs[:, train_lan_id]
-                    if self.args.optim_weight_softmax_tau > 0:
-                        optim_weights = softmax(np.array(optim_weights)/self.args.optim_weight_softmax_tau) * self.cur_data_actor_probs.shape[0]
-                    else:
-                        optim_weights = np.array(optim_weights) / optim_weights.sum() * self.cur_data_actor_probs.shape[0]
-                    if self.args.optim_weight_above_one:
-                        optim_weights[optim_weights < 1] = 1.
-            if self.args.tensorwise_dds:
-                train_lan_id = self.task.langpair2id[list(sample.keys())[0]]
-                self.optimizer.multiply_grad(train_lan_id)
-
-            if self.args.train_proj_grad:
-               if self.args.train_proj_grad_sum:
-                   task_ids = [j for j in range(len(self.task.lang_pairs))]
-                   for idx in task_ids:
-                       # proj current summed grad over idx
-                       self.optimizer.proj_grad_id(idx)
-               else:
-                   if self.args.proj_lan_id:
-                       proj_task_ids = self.args.proj_lan_id
-                   else:
-                       proj_task_ids = [i for i in range(len(self.task.lang_pairs))]
-                   random.shuffle(proj_task_ids)
-                   for i in proj_task_ids:
-                       #task_ids = [j for j in range(i, len(self.task.lang_pairs))]
-                       task_ids = [j for j in range(len(self.task.lang_pairs))]
-                       task_ids.remove(i)
-                       random.shuffle(task_ids)
-                       for idx in task_ids:
-                           self.optimizer.proj_grad_id(idx, src_idx=i)
-                   self.optimizer.combine_proj_grad()
-               for i in range(len(self.task.lang_pairs)):
-                   self.optimizer.reset_train_grad_id(i)
-
-            if self.args.proj_grad and not self.args.train_on_proj:
-                for idx in task_ids:
-                    if self.args.layerwise_dds:
-                        for optimizer in self.optimizer:
-                            optimizer.proj_grad_id(idx)
-                    else:
-                        self.optimizer.proj_grad_id(idx)
             # normalize grads by sample size
             if sample_size > 0:
                 if self.args.layerwise_dds:
@@ -1537,8 +1431,7 @@ class Trainer(object):
             self.meters['loss_scale'].update(self.optimizer.scaler.loss_scale)
 
         self.meters['train_wall'].stop()
-        if False:
-        #if self.args.data_actor_step_update and update_actor:
+        if self.args.data_actor_step_update and update_actor:
             # update data actor
             # get dev gradient
             if self.dev_itr.end_of_epoch():
@@ -1546,7 +1439,7 @@ class Trainer(object):
             v_i, v_sample_size = 0, 0
             for valid_sample in self.dev_itr._cur_epoch_itr:
                 valid_sample = self._prepare_sample(valid_sample)
-                _loss, _sample_size, _logging_output, _ = self.task.train_step(
+                _loss, _sample_size, _logging_output, _, _ = self.task.train_step(
                                         valid_sample, self.model, self.criterion, self.optimizer)
                 v_i += 1
                 v_sample_size += _sample_size
@@ -1562,7 +1455,7 @@ class Trainer(object):
             self.optimizer.add_grad(eta=eta)
             for i, idx in enumerate(trained_sample_idx):
                 sample = self._prepare_sample(samples[idx])
-                loss, sample_size, logging_output, loss_data = self.task.train_step(
+                loss, sample_size, logging_output, loss_data, _ = self.task.train_step(
                     sample, self.model, self.criterion, self.optimizer,
                     ignore_grad=True, 
                     loss_copy=True,
@@ -1576,36 +1469,27 @@ class Trainer(object):
                     #print(reward.data)
                     self.baseline = self.baseline - 0.001 * (self.baseline - (reward.sum()/tgt_len).item() )
                     #print("baseline:", self.baseline)
-                if self.args.out_score_type == "tanh": 
-                    loss = -torch.nn.functional.log_softmax(data_actor_out[idx], dim=0) * (reward.data - self.baseline)
-                elif self.args.out_score_type == "sigmoid":
-                    loss = -torch.log(1e-10 + data_actor_out[idx]) * (reward.data - self.baseline)
-                elif self.args.out_score_type == "word_score":
-                    #loss = (-data_actor_out[idx] * (reward.data - self.baseline).masked_fill_(pad_masks[idx], 0.)) * (1-self.args.data_loss_lambda) + (-data_actor_out[idx].masked_fill_(pad_masks[idx], 0.)) * self.args.data_loss_lambda
-                    loss = (-data_actor_out[idx] * (reward.data - self.baseline)) * (1-self.args.data_loss_lambda) + (-data_actor_out[idx]) * self.args.data_loss_lambda
-                elif self.args.out_score_type == "proj_word_score":
-                    #loss = (-torch.log(1e-10+data_actor_out[idx]) * (reward.data - self.baseline).masked_fill_(pad_masks[idx], 0.)).sum() * (1-self.args.data_loss_lambda) + (-data_actor_proj_out[idx].masked_fill_(pad_masks[idx], 0.)).sum() * self.args.data_loss_lambda
-                    #loss = (-torch.log(1e-10+data_actor_out[idx]) * (reward.data - self.baseline)) * (1-self.args.data_loss_lambda) + (-data_actor_proj_out[idx]) * self.args.data_loss_lambda
-                    loss = -data_actor_out[idx] * (reward.data - self.baseline)
+                loss = -torch.nn.functional.log_softmax(data_actor_out[idx], dim=0) * (reward.data - self.baseline)
                 loss = loss[~pad_masks[idx]]
                 #loss.div_(tgt_len)
                 loss.sum().backward()
-            self.optimizer.switch_param(clear_cache=True)
 
-            # optimize data actor
-            #for i in range(len(cached_loss)):
-            #    reward = 1./eta * (cur_loss[i] - cached_loss[i]) * self.optimizer.get_lr()
-            #    if self.args.out_score_type == 'tanh':
-            #        loss = - torch.nn.functional.log_softmax(data_actor_out[k], dim=0) * reward.data 
-            #    else:
-            #        loss = -(data_actor_out[k] * reward.data)
-            #    #if self.args.out_score_type == 'sigmoid':
-            #    #    loss = -(data_actor_out[k] * reward.data)
-            #    #elif self.args.out_score_type == 'exp':
-            #    #    loss = -(torch.log(1e-20 + data_actor_out[k]) * reward.data)
-            #    if cur_loss[k].size(0) > 0:
-            #        loss.div_(cur_loss[k].size(0))
-            #    loss.sum().backward()
+                data_ids = sample["id"].cpu().data
+                data_id_list, logit_list, score_list = [], [], []
+                for di, data_id in enumerate(data_ids):
+                    data_id = data_id.item()
+                    if data_id not in self.idx_to_dev_grad_dotprod: 
+                        self.idx_to_dev_grad_dotprod[data_id] = []
+                    self.idx_to_dev_grad_dotprod[data_id].append(data_actor_out[idx][di].item())
+                    self.idx_to_dev_grad_dotprod[data_id].append(normed_data_score[idx][di].item())
+                    data_id_list.append(data_id)
+                    logit_list.append(data_actor_out[idx][di].item())
+                    score_list.append(normed_data_score[idx][di].item())
+                if self.score_log:
+                    self.score_log.write("DataID {}\n".format(" ".join([str(s) for s in data_id_list])))
+                    self.score_log.write("Logits {}\n".format(" ".join([str(s) for s in logit_list])))
+                    self.score_log.write("Score {}\n".format(" ".join([str(s) for s in score_list])))
+            self.optimizer.switch_param(clear_cache=True)
             self.data_optimizer.step()
             self.data_optimizer.zero_grad()
             if self.data_actor_lr_scheduler is not None:

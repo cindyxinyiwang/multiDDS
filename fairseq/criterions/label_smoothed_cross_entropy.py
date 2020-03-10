@@ -74,7 +74,7 @@ def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=None, reduce=T
             if reward.is_cuda:
                 discount = discount.cuda()
             reward = reward.repeat(1, T) * discount
-        print(reward)
+        #print(reward)
         nll_loss = nll_loss.view(B, -1) * reward
         nll_loss = nll_loss.view(-1, 1)
     if ignore_index is not None:
