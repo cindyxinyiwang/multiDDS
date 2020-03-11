@@ -22,6 +22,8 @@ from fairseq.models import FairseqMultiModel
 from fairseq.sequence_generator import SequenceGenerator
 from fairseq.tasks.translation import load_langpair_dataset
 from fairseq import utils
+from fairseq.optim import lr_scheduler
+from fairseq.optim import build_optimizer
 import torch
 
 from .multilingual_translation import MultilingualTranslationTask
@@ -127,6 +129,16 @@ class BtTranslationTask(MultilingualTranslationTask):
         parser.add_argument('--bt-optimizer', default="SGD", type=str, help="[SGD|ASGD]")
         parser.add_argument('--bt-optimizer-nesterov', action='store_true')
         parser.add_argument('--bt-optimizer-momentum', default=0., type=float)
+
+        parser.add_argument('--data-lr-scheduler', default=None, type=str)
+        parser.add_argument('--data-force-anneal', type=int, metavar='N',
+                            help='force annealing at specified epoch')
+        parser.add_argument('--data-warmup-updates', default=0, type=int, metavar='N',
+                            help='warmup the learning rate linearly for the first N updates')
+        parser.add_argument('--data-end-learning-rate', default=0.0, type=float)
+        parser.add_argument('--data-power', default=1.0, type=float)
+        parser.add_argument('--data-total-num-update', default=1000000, type=int)
+
 
     def __init__(self, args, dicts, training):
         super().__init__(args, dicts, training)
@@ -307,9 +319,23 @@ class BtTranslationTask(MultilingualTranslationTask):
                 for p in model.models[bt_lang_pair].parameters():
                     if p.requires_grad: bt_params.append(p)
             if self.args.bt_optimizer == "SGD":
-                self.data_optimizer = torch.optim.SGD(bt_params, lr=self.args.data_actor_lr[0], momentum=self.args.bt_optimizer_momentum, nesterov=self.args.bt_optimizer_nesterov)
+                #self.data_optimizer = torch.optim.SGD(bt_params, lr=self.args.data_actor_lr[0], momentum=self.args.bt_optimizer_momentum, nesterov=self.args.bt_optimizer_nesterov)
+                t_optim = self.args.optimizer
+                self.args.optimizer = "data_sgd"
+                self.data_optimizer = build_optimizer(self.args, bt_params)
+                self.args.optimizer = t_optim
             elif self.args.bt_optimizer == "ASGD":
                 self.data_optimizer = torch.optim.ASGD(bt_params, lr=self.args.data_actor_lr[0])
+            if self.args.data_lr_scheduler is not None:
+                print("Building lr scheduler {} for BT model...".format(self.args.data_lr_scheduler))
+                t_scheduler = self.args.lr_scheduler
+                self.args.lr_scheduler = self.args.data_lr_scheduler
+                self.data_lr_scheduler = lr_scheduler.build_lr_scheduler(self.args, self.data_optimizer)
+                self.data_lr_scheduler.step_update(0)
+                self.args.lr_scheduler = t_scheduler
+            else:
+                self.data_lr_scheduler = None
+            self.step = 0
         # create SequenceGenerator for each model that has backtranslation dependency on it
         self.sequence_generators = {}
         #if (self.lambda_otf_bt > 0.0 or self.lambda_otf_bt_steps is not None) and self.training:
@@ -561,6 +587,10 @@ class BtTranslationTask(MultilingualTranslationTask):
         if self.args.bt_dds:
             self.data_optimizer.step()
             self.data_optimizer.zero_grad()
+            self.step += 1
+            if self.data_lr_scheduler is not None:
+                lr = self.data_lr_scheduler.step_update(self.step)
+                print("BT lr={}".format(lr))
 
     def aggregate_logging_outputs(self, logging_outputs, criterion):
         # aggregate logging outputs for each language pair
