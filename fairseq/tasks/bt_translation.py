@@ -125,6 +125,7 @@ class BtTranslationTask(MultilingualTranslationTask):
         parser.add_argument('--bt_dds', action='store_true')
         parser.add_argument('--noise_bt_dds', action='store_true')
         parser.add_argument('--bt_parallel_update', default=0., type=float)
+        parser.add_argument('--discount_baseline_size', default=0, type=int)
         
         parser.add_argument('--bt-optimizer', default="SGD", type=str, help="[SGD|ASGD]")
         parser.add_argument('--bt-optimizer-nesterov', action='store_true')
@@ -445,7 +446,7 @@ class BtTranslationTask(MultilingualTranslationTask):
                 #src, tgt = lang_pair.split("-")
                 #bt_lang_pair = tgt + "-" + src
                 reward = dev_grad_dotprod.view(-1, 1)
-                if self.args.baseline:
+                if self.args.baseline and self.args.discount_baseline_size == 0:
                     if self.baseline is None:
                         #self.baseline = (reward.sum()/reward.size()[0]).item()
                         self.baseline = 0
@@ -454,8 +455,26 @@ class BtTranslationTask(MultilingualTranslationTask):
                     reward = reward - self.baseline
                 reward = (reward*self.args.reward_scale).data
 
+                if self.args.discount_reward > 0:
+                    B, T = sample[sample_key][1]['target'].size()
+                    discount = [1]
+                    for i in range(1, T):
+                        discount.append(discount[-1] * self.args.discount_reward)
+                    discount.reverse()
+                       
+                    discount = torch.FloatTensor([discount])
+                    if reward.is_cuda:
+                        discount = discount.cuda()
+                    reward = reward.repeat(1, T) * discount
+                    if self.args.discount_baseline_size > 0:
+                       if not hasattr(self, 'discount_baseline'):
+                           self.discount_baseline = [0. for _ in range(self.args.discount_baseline_size)]
+                       for i in range(T):
+                           self.discount_baseline[i] = self.discount_baseline[i] - 0.001 * (self.discount_baseline[i]-reward[:,i].sum().item()/B)
+                           reward[:,i] = reward[:,i] - self.discount_baseline[i]
+
                 loss, _, logging_output, val_loss_data, _ = criterion(model.models[bt_lang_pair], sample[sample_key][1], data_score=reward, loss_copy=False)
-                loss = loss * self.lambda_denoising
+                loss = loss
                 #loss = loss * 0
                 loss.backward()
                 agg_logging_output[bt_lang_pair] = logging_output

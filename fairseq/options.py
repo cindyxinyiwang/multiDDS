@@ -346,6 +346,7 @@ def get_parser(desc, default_task='translation'):
     parser.add_argument('--only-optim-model-key', type=str, default=None)
     parser.add_argument('--upsample-factor', type=int, default=0)
 
+    parser.add_argument('--data-score-label-smooth', type=str, default="none", help="[no_smooth|weigted_smooth]")
     from fairseq.registry import REGISTRIES
     for registry_name, REGISTRY in REGISTRIES.items():
         parser.add_argument(

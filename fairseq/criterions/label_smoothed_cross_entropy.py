@@ -65,18 +65,15 @@ def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=None, reduce=T
             reward = torch.nn.functional.relu(data_score.data)
         else:
             reward = data_score.data
-        if args.discount_reward > 0:
-            discount = [1]
-            for i in range(1, T):
-                discount.append(discount[-1] * args.discount_reward)
-            discount.reverse()
-            discount = torch.FloatTensor([discount])
-            if reward.is_cuda:
-                discount = discount.cuda()
-            reward = reward.repeat(1, T) * discount
         print(reward)
+        print(reward.size())
         nll_loss = nll_loss.view(B, -1) * reward
         nll_loss = nll_loss.view(-1, 1)
+        if args.data_score_label_smooth == "no_smooth":
+            epsilon = 0
+        elif args.data_score_label_smooth == "weighted_smooth":
+            smooth_loss = smooth_loss.view(B, -1) * reward
+            smooth_loss = smooth_loss.view(-1, 1)
     if ignore_index is not None:
         non_pad_mask = target.ne(ignore_index)
         nll_loss = nll_loss[non_pad_mask]
