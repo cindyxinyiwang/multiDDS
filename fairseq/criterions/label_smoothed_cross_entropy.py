@@ -74,6 +74,8 @@ def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=None, reduce=T
         elif args.data_score_label_smooth == "weighted_smooth":
             smooth_loss = smooth_loss.view(B, -1) * reward
             smooth_loss = smooth_loss.view(-1, 1)
+            print("weighted smooth")
+        print(args.data_score_label_smooth)
     if ignore_index is not None:
         non_pad_mask = target.ne(ignore_index)
         nll_loss = nll_loss[non_pad_mask]

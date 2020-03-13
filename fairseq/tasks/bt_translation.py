@@ -107,6 +107,12 @@ class BtTranslationTask(MultilingualTranslationTask):
                                  'use fixed weight during training if set to floating point number. '
                                  'use piecewise linear function over number of updates to schedule the '
                                  'weight with the format: w0:step0,w1:step1,...')
+        parser.add_argument('--lambda-otf-parallel-config', default="0.0", type=str, metavar='CONFIG',
+                            help='cross-entropy reconstruction coefficient (on-the-fly back-translation parallel data)'
+                                 'use fixed weight during training if set to floating point number. '
+                                 'use piecewise linear function over number of updates to schedule the '
+                                 'weight with the format: w0:step0,w1:step1,...')
+
         parser.add_argument('--bt-max-len-a', default=1.1, type=float, metavar='N',
                             help='generate back-translated sequences of maximum length ax + b, where x is the '
                                  'source length')
@@ -146,6 +152,7 @@ class BtTranslationTask(MultilingualTranslationTask):
         self.lambda_parallel, self.lambda_parallel_steps = parse_lambda_config(args.lambda_parallel_config)
         self.lambda_otf_bt, self.lambda_otf_bt_steps = parse_lambda_config(args.lambda_otf_bt_config)
         self.lambda_denoising, self.lambda_denoising_steps = parse_lambda_config(args.lambda_denoising_config)
+        self.lambda_otf_parallel, self.lambda_otf_parallel_steps = parse_lambda_config(args.lambda_otf_parallel_config)
         self.backtranslate_datasets = {}
         self.backtranslators = {}
         self.cuda = torch.cuda.is_available() and not args.cpu
@@ -320,11 +327,11 @@ class BtTranslationTask(MultilingualTranslationTask):
                 for p in model.models[bt_lang_pair].parameters():
                     if p.requires_grad: bt_params.append(p)
             if self.args.bt_optimizer == "SGD":
-                #self.data_optimizer = torch.optim.SGD(bt_params, lr=self.args.data_actor_lr[0], momentum=self.args.bt_optimizer_momentum, nesterov=self.args.bt_optimizer_nesterov)
-                t_optim = self.args.optimizer
-                self.args.optimizer = "data_sgd"
-                self.data_optimizer = build_optimizer(self.args, bt_params)
-                self.args.optimizer = t_optim
+                self.data_optimizer = torch.optim.SGD(bt_params, lr=self.args.data_actor_lr[0], momentum=self.args.bt_optimizer_momentum, nesterov=self.args.bt_optimizer_nesterov)
+                #t_optim = self.args.optimizer
+                #self.args.optimizer = "data_sgd"
+                #self.data_optimizer = build_optimizer(self.args, bt_params)
+                #self.args.optimizer = t_optim
             elif self.args.bt_optimizer == "ASGD":
                 self.data_optimizer = torch.optim.ASGD(bt_params, lr=self.args.data_actor_lr[0])
             if self.args.data_lr_scheduler is not None:
@@ -443,6 +450,7 @@ class BtTranslationTask(MultilingualTranslationTask):
             if self.args.bt_dds and self.lambda_denoising > 0:
                 # update the bt model using dev grad reward
                 bt_lang_pair = _get_dds_bt_key(lang_pair)
+                print("lambda_denoising={}".format(self.lambda_denoising))
                 #src, tgt = lang_pair.split("-")
                 #bt_lang_pair = tgt + "-" + src
                 reward = dev_grad_dotprod.view(-1, 1)
@@ -474,13 +482,14 @@ class BtTranslationTask(MultilingualTranslationTask):
                            reward[:,i] = reward[:,i] - self.discount_baseline[i]
 
                 loss, _, logging_output, val_loss_data, _ = criterion(model.models[bt_lang_pair], sample[sample_key][1], data_score=reward, loss_copy=False)
-                loss = loss
+                loss = loss * self.lambda_denoising
                 #loss = loss * 0
                 loss.backward()
                 agg_logging_output[bt_lang_pair] = logging_output
-                if self.args.bt_parallel_update > 0:
+                if self.lambda_otf_parallel > 0:
+                    print("lambda_denoising={}".format(self.lambda_otf_parallel))
                     loss, _, logging_output, val_loss_data, _ = criterion(model.models[bt_lang_pair], sample[bt_lang_pair], data_score=reward, loss_copy=False)
-                    loss = loss * self.args.bt_parallel_update
+                    loss = loss * self.args.lambda_otf_parallel
                     loss.backward()
                    
         return agg_loss, agg_sample_size, agg_logging_output, None, None
@@ -596,13 +605,6 @@ class BtTranslationTask(MultilingualTranslationTask):
             x_a, y_a = config[i]
             x_b, y_b = config[i + 1]
             return y_a + (n_iter - x_a) * float(y_b - y_a) / float(x_b - x_a)
-
-        if self.lambda_parallel_steps is not None:
-            self.lambda_parallel = lambda_step_func(self.lambda_parallel_steps, num_updates)
-        if self.lambda_otf_bt_steps is not None:
-            self.lambda_otf_bt = lambda_step_func(self.lambda_otf_bt_steps, num_updates)
-        if self.lambda_denoising_steps is not None:
-            self.lambda_denoising = lambda_step_func(self.lambda_denoising_steps, num_updates)
         if self.args.bt_dds:
             self.data_optimizer.step()
             self.data_optimizer.zero_grad()
@@ -610,6 +612,15 @@ class BtTranslationTask(MultilingualTranslationTask):
             if self.data_lr_scheduler is not None:
                 lr = self.data_lr_scheduler.step_update(self.step)
                 print("BT lr={}".format(lr))
+        if self.lambda_otf_parallel_steps is not None:
+            self.lambda_otf_parallel = lambda_step_func(self.lambda_otf_parallel_steps, self.step)
+
+        if self.lambda_parallel_steps is not None:
+            self.lambda_parallel = lambda_step_func(self.lambda_parallel_steps, self.step)
+        if self.lambda_otf_bt_steps is not None:
+            self.lambda_otf_bt = lambda_step_func(self.lambda_otf_bt_steps, self.step)
+        if self.lambda_denoising_steps is not None:
+            self.lambda_denoising = lambda_step_func(self.lambda_denoising_steps, self.step)
 
     def aggregate_logging_outputs(self, logging_outputs, criterion):
         # aggregate logging outputs for each language pair
