@@ -22,7 +22,7 @@
 #done
 
 #bt_model=checkpoints/bt_iwslt_deen30k/ende/checkpoint_best.pt
-#cp_base_dir=checkpoints/bt_iwslt_deen30k/deen_
+#cp_base_dir=checkpoints/bt_iwslt_deen30k/epoch50/deen_
 #script_base_dir=job_scripts/bt_iwslt_deen30k/deen_
 #
 #template_dir=util_scripts/bt_dds_templates/
@@ -46,7 +46,7 @@
 #done
 
 bt_model=checkpoints/bt_glgpor/eng_glg/checkpoint_best.pt
-cp_base_dir=checkpoints/bt_glgpor/
+cp_base_dir=checkpoints/bt_glgpor/epoch50
 script_base_dir=job_scripts/bt_glgpor/
 
 template_dir=util_scripts/bt_dds_templates/
@@ -54,7 +54,7 @@ SEED=2
 
 for dis in 0.99 0.95 0.90; do
     for lr in 1e-9; do
-    for up in 1 0; do
+    for up in 1 ; do
         for temp in glg_dds_m_dbase_dis; do
             script_name="$script_base_dir""$temp""$dis"_lr"$lr"_up"$up".sh
             dirname="$cp_base_dir""$temp""$dis"_lr"$lr"_up"$up"

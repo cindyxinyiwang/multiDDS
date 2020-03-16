@@ -24,12 +24,14 @@ echo 'slurm id '$SLURM_JOB_ID >> $MODEL_DIR/train.log
 python train.py data-bin/bt_glgpor/ \
 	  --task bt_translation \
 	  --arch multilingual_transformer_iwslt_de_en \
-	  --max-epoch 90 \
+	  --max-epoch 50 \
           --dataset-type "round_robin" --upsample-factor UP \
           --lang-pairs "glg-eng" \
+          --eval-lang-pairs "glg-eng" \
     --only-optim-model-key "glg-eng" \
     --share-all-langpair-embeddings \
-	  --reset-optimizer \
+	  --eval-bleu --remove-bpe sentencepiece \
+	  --reset-optimizer --reset-meters --reset-dataloader \
 	  --no-epoch-checkpoints \
     --bt-optimizer-momentum 0.9 --bt-optimizer-nesterov \
     --bt_dds --discount_baseline_size 200 --discount-reward DIS \
