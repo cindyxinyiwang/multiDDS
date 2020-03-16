@@ -33,7 +33,7 @@ python train.py data-bin/bt_iwslt_deen30k/ \
 	  --no-epoch-checkpoints \
     --bt-optimizer-momentum 0.9 --bt-optimizer-nesterov \
     --bt_dds --baseline --discount-reward DIS \
-    --lambda-denoising-config '1' \
+    --lambda-denoising-config '0:1,10000:10' \
     --reward-scale 1 \
     --data-actor-lr LR \
     --sampling --sampling-topk 10 --temperature 1 \

@@ -21,18 +21,20 @@ export PYTHONPATH="$(pwd)"
 echo 'slurm id '$SLURM_JOB_ID >> $MODEL_DIR/train.log
 
 #CUDA_VISIBLE_DEVICES=$1 python train.py data-bin/ted_eight_sepv/ \
-python train.py data-bin/bt_iwslt_deen30k/ \
+python train.py data-bin/bt_glgpor/ \
 	  --task bt_translation \
 	  --arch multilingual_transformer_iwslt_de_en \
-	  --max-epoch 60 \
-          --dataset-type "round_robin" \
-          --lang-pairs "de-en" \
-    --only-optim-model-key "de-en" \
+	  --max-epoch 50 \
+          --dataset-type "round_robin" --upsample-factor UP \
+          --lang-pairs "glg-eng" \
+          --eval-lang-pairs "glg-eng" \
+    --only-optim-model-key "glg-eng" \
     --share-all-langpair-embeddings \
-	  --reset-optimizer \
+	  --eval-bleu --remove-bpe sentencepiece \
+	  --reset-optimizer --reset-meters --reset-dataloader \
 	  --no-epoch-checkpoints \
     --bt-optimizer-momentum 0.9 --bt-optimizer-nesterov \
-    --bt_dds --baseline --discount-reward DIS \
+    --bt_dds --discount_baseline_size 200 --discount-reward DIS \
     --lambda-denoising-config '1' \
     --reward-scale 1 \
     --data-actor-lr LR \

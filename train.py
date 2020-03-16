@@ -13,6 +13,7 @@ import random
 
 import numpy as np
 import torch
+import copy
 
 from fairseq import bleu
 from fairseq import checkpoint_utils, distributed_utils, options, progress_bar, tasks, utils
@@ -82,7 +83,11 @@ def main(args, init_distributed=False):
     train_meter.start()
     valid_subsets = args.valid_subset.split(',')
     if args.eval_bleu:
-        generator = task.build_generator(args)
+        gen_args = copy.deepcopy(args)
+        gen_args.sample = False
+        gen_args.beam = 5
+        gen_args.batch_size = 32
+        generator = task.build_generator(gen_args)
         args.maximize_best_checkpoint_metric = True
     else:
         generator = None
@@ -420,6 +425,7 @@ def validate_translation(args, trainer, task, epoch_itr, generator):
                             scorer_dict[key].add(target_tokens, hypo_tokens)
 
             num_sentences += sample['nsentences']
+    print("|valid tranlsated {} sentences".format(num_sentences))
     for key, scorer in scorer_dict.items():
         bleu_dict[key] = scorer.score()
     return bleu_dict

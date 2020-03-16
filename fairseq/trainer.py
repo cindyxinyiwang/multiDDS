@@ -408,7 +408,7 @@ class Trainer(object):
                     self.extra_data_actor.load_state_dict(state['extra_data_actor'])
                 if 'extra_data_optimizer' in state and state['extra_data_optimizer']:
                     self.extra_data_optimizer.load_state_dict(state['extra_data_optimizer'])
-                if 'bt_data_optimizer' in state and state['bt_data_optimizer'] and hasattr(task, "data_optimizer"):
+                if 'bt_data_optimizer' in state and state['bt_data_optimizer'] and hasattr(self.task, "data_optimizer"):
                     print("loading bt_data_optimizer...")
                     self.task.data_optimizer.load_state_dict(state['bt_data_optimizer'])
 
@@ -442,17 +442,17 @@ class Trainer(object):
                 epoch = extra_state['train_iterator']['epoch']
                 print('| loaded checkpoint {} (epoch {} @ {} updates)'.format(
                     filename, epoch, self.get_num_updates()))
+                if not reset_meters:
+                    self.lr_step(epoch)
 
-                self.lr_step(epoch)
+                    if 'train_meters' in extra_state and not reset_meters:
+                        self.meters.update(extra_state['train_meters'])
+                        del extra_state['train_meters']
 
-                if 'train_meters' in extra_state and not reset_meters:
-                    self.meters.update(extra_state['train_meters'])
-                    del extra_state['train_meters']
-
-                    # reset TimeMeters, since their start times don't make sense anymore
-                    for meter in self.meters.values():
-                        if isinstance(meter, TimeMeter):
-                            meter.reset()
+                        # reset TimeMeters, since their start times don't make sense anymore
+                        for meter in self.meters.values():
+                            if isinstance(meter, TimeMeter):
+                                meter.reset()
             else:
                 print('| no existing checkpoint found {}'.format(filename))
 

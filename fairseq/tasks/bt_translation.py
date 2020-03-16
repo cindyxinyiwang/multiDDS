@@ -271,17 +271,27 @@ class BtTranslationTask(MultilingualTranslationTask):
                 self.backtranslate_datasets[lang_pair] = backtranslate_datasets[lang_pair]
 
 
-        self.datasets[split] = RoundRobinZipDatasets(
-            OrderedDict([
-                (lang_pair, language_pair_dataset(lang_pair))
-                for lang_pair in src_datasets.keys()
-            ] + [
-                (_get_bt_dataset_key(lang_pair), dataset)
-                for lang_pair, dataset in backtranslate_datasets.items()
-            ]),
-            eval_key=None if self.training else "%s-%s" % (self.args.source_lang, self.args.target_lang),
-            upsample_factor=self.args.upsample_factor,
-        )
+        if split == 'train':
+            self.datasets[split] = RoundRobinZipDatasets(
+                OrderedDict([
+                    (lang_pair, language_pair_dataset(lang_pair))
+                    for lang_pair in src_datasets.keys()
+                ] + [
+                    (_get_bt_dataset_key(lang_pair), dataset)
+                    for lang_pair, dataset in backtranslate_datasets.items()
+                ]),
+                eval_key=None if self.training else "%s-%s" % (self.args.source_lang, self.args.target_lang),
+                upsample_factor=self.args.upsample_factor,
+            )
+        else:
+            self.datasets[split] = RoundRobinZipDatasets(
+                OrderedDict([
+                    (lang_pair, language_pair_dataset(lang_pair))
+                    for lang_pair in src_datasets.keys()
+                ]),
+                eval_key=None if self.training else "%s-%s" % (self.args.source_lang, self.args.target_lang),
+            )
+
         if split == 'valid' and self.args.bt_dds:
             if self.args.max_tokens_valid is not None:
                 max_tokens_valid = self.args.max_tokens_valid/4

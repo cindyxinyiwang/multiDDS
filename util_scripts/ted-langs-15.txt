@@ -1,0 +1,15 @@
+aze
+tur
+bel
+rus
+glg
+por
+slk
+ces
+spa
+ukr
+fra
+ita
+srp
+pol
+slv
