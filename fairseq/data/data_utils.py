@@ -18,7 +18,7 @@ import torch
 
 from fairseq.data import iterators
 
-def switchout(tokens, lengths, tau, dic):
+def switchout(tokens, lengths, tau, dic, id_to_sample_probabilities=None):
     # first sample the number of words to corrupt
     max_len = tokens.size(1)
 
@@ -31,7 +31,7 @@ def switchout(tokens, lengths, tau, dic):
     mask = []
     for i in lengths.tolist():
         mask.append([0 for _ in range(i)] + [1 for _ in range(max_len-i)])
-    mask = torch.LongTensor(mask).bool()
+    mask = torch.LongTensor(mask).type(torch.uint8)
     logits = logits.mul_(-1).unsqueeze(0).expand_as(tokens).contiguous().masked_fill_(mask, -float('inf'))
     probs = torch.softmax(logits.mul_(tau), dim=-1)
     num_words = torch.distributions.Categorical(probs).sample().float()
@@ -39,15 +39,28 @@ def switchout(tokens, lengths, tau, dic):
 
     # sample the indices to corrupt
     corrupt_pos = num_words.div_(lengths).unsqueeze(1).expand_as(tokens).contiguous().masked_fill_(sample_mask, 0)
-    corrupt_pos = torch.bernoulli(corrupt_pos, out=corrupt_pos).byte().bool()
+    corrupt_pos = torch.bernoulli(corrupt_pos, out=corrupt_pos).byte().type(torch.uint8)
     total_words = int(corrupt_pos.sum())
     if total_words == 0:
         return tokens
-    # sample the corrupts
-    corrupt_val = torch.LongTensor(total_words)
-    corrupts = torch.zeros_like(tokens).long()
-    corrupts = corrupts.masked_scatter_(corrupt_pos, corrupt_val)
-    sampled_tokens = tokens.add(corrupts).remainder_(len(dic)).masked_fill_(pad_mask, dic.pad())
+    if id_to_sample_probabilities is not None:
+        sample_probabilities, sample_idx_to_words = id_to_sample_probabilities
+        # sample according to probability
+        # first get the words to corrupt
+        original_tokens = tokens[corrupt_pos].view(-1).data
+        # sample according to the probability of each token
+        corrupt_tokens = []
+        for tok in original_tokens:
+            sampled_idx = np.random.choice(len(sample_idx_to_words), p=sample_probabilities[tok.item()])
+            corrupt_tokens.append(sample_idx_to_words[sampled_idx])
+        corrupt_val = torch.LongTensor(corrupt_tokens)
+        sampled_tokens = tokens.masked_scatter_(corrupt_pos, corrupt_val)
+    else:
+        # sample the corrupts
+        corrupt_val = torch.LongTensor(total_words)
+        corrupts = torch.zeros_like(tokens).long()
+        corrupts = corrupts.masked_scatter_(corrupt_pos, corrupt_val)
+        sampled_tokens = tokens.add(corrupts).remainder_(len(dic)).masked_fill_(pad_mask, dic.pad())
 
     return sampled_tokens
 
