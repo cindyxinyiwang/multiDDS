@@ -205,9 +205,15 @@ class MultilingualTransformerModel(FairseqMultiModel):
 
     def load_state_dict(self, state_dict, strict=True):
         state_dict_subset = state_dict.copy()
-        for k, _ in state_dict.items():
+        for k, item in state_dict.items():
             #assert k.startswith('models.')
-            lang_pair = k.split('.')[1]
+            keys = k.split(".")
+            lang_pair = keys[1]
+            if lang_pair == "eng-por":
+                keys[1] = "eng-glg"
+                state_dict_subset[".".join(keys)] = item
+                #if k in state_dict_subset:
+                #    del state_dict_subset[k]
             if lang_pair not in self.models:
                 del state_dict_subset[k]
         super().load_state_dict(state_dict_subset, strict=False)
