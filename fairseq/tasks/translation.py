@@ -7,6 +7,7 @@ import itertools
 import os
 import torch
 import numpy as np
+import scipy
 
 from fairseq import options, utils
 from fairseq.data import (
@@ -25,7 +26,7 @@ def load_langpair_dataset(
     tgt, tgt_dict,
     combine, dataset_impl, upsample_primary,
     left_pad_source, left_pad_target, max_source_positions, max_target_positions,
-    src_tag=None, tgt_tag=None, src_tau=-1, tgt_tau=-1, epoch=0, 
+    src_tag=None, tgt_tag=None, src_tau=-1, tgt_tau=-1, epoch=0, id_to_sample_probabilities=None 
 ):
     def split_exists(split, src, tgt, lang, data_path):
         filename = os.path.join(data_path, '{}.{}-{}.{}'.format(split, src, tgt, lang))
@@ -81,6 +82,7 @@ def load_langpair_dataset(
         tgt_tag=tgt_tag,
         src_tau=src_tau,
         tgt_tau=tgt_tau,
+        id_to_sample_probabilities=id_to_sample_probabilities,
     )
 
 
@@ -131,6 +133,11 @@ class TranslationTask(FairseqTask):
         parser.add_argument('--upsample-primary', default=1, type=int,
                             help='amount to upsample primary dataset')
         # fmt: on
+        parser.add_argument('--main-src-wordfreq', default=None, type=str,
+                            help='word frequency file of the main train source')
+        parser.add_argument('--dialect-src-wordfreq', default=None, type=str,
+                            help='word frequency file of the dialect train source')
+        parser.add_argument('--dialect-tau', default=1., type=float)
 
     def __init__(self, args, src_dict, tgt_dict):
         super().__init__(args)
@@ -189,6 +196,26 @@ class TranslationTask(FairseqTask):
 
         if not hasattr(self.args, 'source_tau'): self.args.source_tau = -1
         if not hasattr(self.args, 'target_tau'): self.args.target_tau = -1
+
+        if self.args.main_src_wordfreq is not None and self.args.dialect_src_wordfreq is not None:
+            def word_idx_from_file(filename):
+                idx = []
+                with open(filename, 'r') as myfile:
+                    for line in myfile:
+                        idx.append(self.src_dict.index(line.split()[0]))
+                return idx
+            self.main_src_word_idx = word_idx_from_file(self.args.main_src_wordfreq) 
+            self.dialect_src_word_idx = word_idx_from_file(self.args.dialect_src_wordfreq)
+            self.idx_to_sample_prob = []
+            for i, src_word in enumerate(self.main_src_word_idx):
+                dialect_word_probs = np.array([-np.absolute(k-i) for k in range(len(self.dialect_src_word_idx))])
+                self.idx_to_sample_prob.append(dialect_word_probs)
+            #self.idx_to_sample_prob = scipy.special.softmax(np.array(self.idx_to_sample_prob)*0.01, axis=1)
+            self.idx_to_sample_prob = scipy.special.softmax(np.array(self.idx_to_sample_prob)*self.args.dialect_tau, axis=1)
+            print(self.idx_to_sample_prob)
+            pass_item = (self.idx_to_sample_prob, self.dialect_src_word_idx)
+        else:
+            pass_item = None 
         self.datasets[split] = load_langpair_dataset(
             data_path, split, src, self.src_dict, tgt, self.tgt_dict,
             combine=combine, dataset_impl=self.args.dataset_impl,
@@ -200,6 +227,7 @@ class TranslationTask(FairseqTask):
             src_tag=self.args.src_tag, tgt_tag=self.args.tgt_tag,
             src_tau=self.args.source_tau, tgt_tau=self.args.target_tau,
             epoch=epoch,
+            id_to_sample_probabilities=pass_item,
         )
 
     def build_dataset_for_inference(self, src_tokens, src_lengths):
