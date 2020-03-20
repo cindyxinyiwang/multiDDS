@@ -34,7 +34,7 @@ CUDA_VISIBLE_DEVICES=$1 python train.py data-bin/bt_iwslt_ende/ \
 	  --no-epoch-checkpoints \
     --bt-optimizer OPTIM \
     --bt_dds --baseline --discount-reward DIS \
-    --grad-clip GRADN \
+    --grad-clip GRADN --bt-norm-by-word \
     --lambda-denoising-config '1' \
     --reward-scale 1 \
     --data-actor-lr LR \

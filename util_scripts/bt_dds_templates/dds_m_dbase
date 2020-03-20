@@ -20,22 +20,25 @@ export PYTHONPATH="$(pwd)"
 
 echo 'slurm id '$SLURM_JOB_ID >> $MODEL_DIR/train.log
 
-#CUDA_VISIBLE_DEVICES=$1 python train.py data-bin/ted_eight_sepv/ \
-python train.py data-bin/bt_azetur/ \
+CUDA_VISIBLE_DEVICES=$1 python train.py data-bin/bt_iwslt_ende/ \
 	  --task bt_translation \
 	  --arch multilingual_transformer_iwslt_de_en \
-	  --max-epoch 81 \
-          --dataset-type "round_robin" --upsample-factor 1 \
-          --lang-pairs "aze-eng" \
-    --only-optim-model-key "aze-eng" \
-    --share-all-langpair-embeddings \
-	  --reset-optimizer \
+	  --max-epoch 30 \
+          --dataset-type "round_robin"  \
+          --lang-pairs "en-de" \
+          --eval-lang-pairs "en-de" \
+          --only-optim-model-key "en-de" \
+          --share-all-langpair-embeddings \
+          --eval-bleu --remove-bpe sentencepiece \
+	  --reset-optimizer --reset-meters --reset-dataloader \
 	  --no-epoch-checkpoints \
-    --bt_dds --baseline --discount-reward DIS \
+    --bt-optimizer OPTIM \
+    --bt_dds --discount-baseline-size 200 --discount-reward DIS \
+    --grad-clip GRADN \
     --lambda-denoising-config '1' \
     --reward-scale 1 \
     --data-actor-lr LR \
-    --sampling --sampling-topk 10 --temperature 1 \
+          --sampling --sampling-topk 10 --temperature 1 \
 	  --optimizer 'adam' --adam-betas '(0.9, 0.98)' --lr-scheduler 'inverse_sqrt_decay' \
 	  --warmup-init-lr 1e-7 --warmup-updates 4000 --lr 2e-4  \
 	  --criterion 'label_smoothed_cross_entropy' --label-smoothing 0.1 \
