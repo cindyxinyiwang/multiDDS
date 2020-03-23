@@ -20,6 +20,7 @@ from fairseq.data import iterators
 from fairseq.trainer import Trainer
 from fairseq.meters import AverageMeter, StopwatchMeter
 
+import copy
 
 def main(args, init_distributed=False):
     utils.import_user_module(args)
@@ -82,7 +83,10 @@ def main(args, init_distributed=False):
     train_meter.start()
     valid_subsets = args.valid_subset.split(',')
     if args.eval_bleu:
-        generator = task.build_generator(args)
+        eval_args = copy.deepcopy(args)
+        eval_args.sampling = False
+        eval_args.sampling_topk = -1
+        generator = task.build_generator(eval_args)
         args.maximize_best_checkpoint_metric = True
     else:
         generator = None

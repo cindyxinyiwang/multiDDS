@@ -4,7 +4,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --time=0
 #SBATCH --mem=15GB
-##SBATCH --exclude=compute-0-26
+#SBATCH --exclude=compute-0-36
 
 ##SBATCH --job-name=fw_slk-eng
 ##SBATCH --output=checkpoints/train_logs/fw_slk-eng_train-%j.out
@@ -20,22 +20,21 @@ export PYTHONPATH="$(pwd)"
 
 echo 'slurm id '$SLURM_JOB_ID >> $MODEL_DIR/train.log
 
-#CUDA_VISIBLE_DEVICES=$1 python train.py data-bin/bt_iwslt_ende/ \
-python train.py data-bin/bt_iwslt_ende/ \
+python train.py data-bin/bt_iwslt_deen30k/ \
 	  --task bt_translation \
 	  --arch multilingual_transformer_iwslt_de_en \
 	  --max-epoch 30 \
-          --dataset-type "round_robin"  \
-          --lang-pairs "en-de" \
-          --eval-lang-pairs "en-de" \
-          --only-optim-model-key "en-de" \
+	 --eval-bleu --remove-bpe sentencepiece \
+          --dataset-type "round_robin" --upsample-factor 1  \
+          --lang-pairs "de-en" \
+          --eval-lang-pairs "de-en" \
+          --only-optim-model-key "de-en" \
           --share-all-langpair-embeddings \
-          --eval-bleu --remove-bpe sentencepiece \
-	  --reset-optimizer --reset-meters --reset-dataloader \
+	  --reset-optimizer --reset-meters --reset-dataloader  \
 	  --no-epoch-checkpoints \
     --bt-optimizer OPTIM \
     --bt_dds --discount-baseline-size 200 --discount-reward DIS \
-    --grad-clip GRADN --bt-norm-by-word \
+    --grad-clip GRADN \
     --lambda-denoising-config '1' \
     --reward-scale 1 \
     --data-actor-lr LR \
