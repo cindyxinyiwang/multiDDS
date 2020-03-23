@@ -130,6 +130,15 @@ class BtTranslationTask(MultilingualTranslationTask):
 
         parser.add_argument('--discount-baseline-size', default=0, type=int)
 
+        parser.add_argument('--actor-critic', action='store_true')
+        parser.add_argument('--critic-optimizer', default="Adam", type=str, help="[Adam|SGD|ASGD]")
+        parser.add_argument('--critic-pretrain-steps', default=1000, type=int)
+        parser.add_argument('--critic-pretrain-lr', default=0.001, type=float)
+        parser.add_argument('--critic-lr', default=0.0001, type=float)
+        parser.add_argument('--lambda-var-loss', default=0.0001, type=float)
+        parser.add_argument('--grad-clip', default=5., type=float)
+        parser.add_argument('--norm-by-vocab', default=0, type=int)
+
     def __init__(self, args, dicts, training):
         super().__init__(args, dicts, training)
         self.lambda_parallel, self.lambda_parallel_steps = parse_lambda_config(args.lambda_parallel_config)
@@ -139,6 +148,7 @@ class BtTranslationTask(MultilingualTranslationTask):
         self.backtranslators = {}
         self.cuda = torch.cuda.is_available() and not args.cpu
         self.baseline = None
+        self.bt_sample_size = 0
 
     @classmethod
     def setup_task(cls, args, **kwargs):
@@ -289,6 +299,24 @@ class BtTranslationTask(MultilingualTranslationTask):
                 noskip=True,
             )[0]
             self.dev_itr.next_epoch_itr(shuffle=True)
+        if split == 'train' and self.args.actor_critic:
+            self.train_itr = self.get_batch_iterator(
+                dataset=self.dataset('train'),
+                max_tokens=self.args.max_tokens,
+                max_sentences=self.args.max_sentences,
+                max_positions=utils.resolve_max_positions(
+                    self.max_positions(),
+                ),
+                ignore_invalid_inputs=self.args.skip_invalid_size_inputs_valid_test,
+                required_batch_size_multiple=self.args.required_batch_size_multiple,
+                seed=self.args.seed,
+                num_shards=self.args.distributed_world_size,
+                shard_id=self.args.distributed_rank,
+                num_workers=self.args.num_workers,
+                noskip=True,
+            )[0]
+            self.train_itr.next_epoch_itr(shuffle=True)
+
 
     def build_model(self, args):
         from fairseq import models
@@ -301,6 +329,7 @@ class BtTranslationTask(MultilingualTranslationTask):
         self.lang_pairs = copied_lang_pairs
         if not isinstance(model, FairseqMultiModel):
             raise ValueError('SemisupervisedTranslationTask requires a FairseqMultiModel architecture')
+        self.bt_model = model.models[_get_dds_bt_key(self.lang_pairs[0])]
         if self.args.bt_dds:
             # set up data actor finetune optimizer
             bt_params = []
@@ -312,6 +341,18 @@ class BtTranslationTask(MultilingualTranslationTask):
                 self.data_optimizer = torch.optim.SGD(bt_params, lr=self.args.data_actor_lr[0], momentum=self.args.bt_optimizer_momentum, nesterov=self.args.bt_optimizer_nesterov)
             elif self.args.bt_optimizer == "ASGD":
                 self.data_optimizer = torch.optim.ASGD(bt_params, lr=self.args.data_actor_lr[0])
+            elif self.args.bt_optimizer == "Adam":
+                self.data_optimizer = torch.optim.Adam(bt_params, lr=self.args.data_actor_lr[0])
+        if self.args.actor_critic:
+            src_lang = self.lang_pairs[0].split('-')[0]
+            self.src_dict = self.dicts[src_lang]
+            self.critic = torch.nn.Linear(self.args.decoder_output_dim, len(self.src_dict), bias=False)
+            if self.args.critic_optimizer == "SGD":
+                self.critic_optimizer = torch.optim.SGD(self.critic.parameters(), lr=0.001)
+            elif self.args.critic_optimizer == "Adam":
+                self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=0.001)
+            if self.cuda:
+                self.critic = self.critic.cuda()
         # create SequenceGenerator for each model that has backtranslation dependency on it
         self.sequence_generators = {}
         #if (self.lambda_otf_bt > 0.0 or self.lambda_otf_bt_steps is not None) and self.training:
@@ -344,7 +385,248 @@ class BtTranslationTask(MultilingualTranslationTask):
 
         return model
 
+    def pretrain_critic(self, model, criterion):
+        model.train()
+        pretrain_critic_steps = self.args.critic_pretrain_steps
+        for param_group in self.critic_optimizer.param_groups:
+            param_group['lr'] = self.args.critic_pretrain_lr
+        for sample in self.train_itr._cur_epoch_itr:
+            sample = utils.move_to_cuda(sample) if self.cuda else sample
+            for lang_pair in self.lang_pairs:
+                sample_key = _get_bt_dataset_key(lang_pair)
+                params = []
+                for p in model.models[lang_pair].parameters():
+                    if p.requires_grad: 
+                        params.append(p)
+                params = params[1:]
+                if self.dev_itr.end_of_epoch():
+                        self.dev_itr.next_epoch_itr(shuffle=True)
+                for valid_sample in self.dev_itr._cur_epoch_itr:
+                    valid_sample = utils.move_to_cuda(valid_sample) if self.cuda else valid_sample
+                    loss, v_sample_size, _, valid_nll_loss, _ = criterion(model.models[lang_pair], valid_sample[lang_pair], loss_copy=True)
+                    valid_nll_loss = valid_nll_loss.sum() / v_sample_size
+                    with torch.no_grad():
+                        valid_grad = torch.autograd.grad(valid_nll_loss, params, only_inputs=True)
+                    break
+                #print(sample[sample_key][0])
+                loss, sample_size, logging_output, nll_loss_data, dev_grad_dotprod = criterion(model.models[lang_pair], sample[sample_key][0], val_loss_data=None, loss_copy=True)
+                
+                # B X T
+                nll_loss = nll_loss_data.sum(dim=1) / sample_size
+                z = torch.ones_like(nll_loss).requires_grad_(True)
+                pgrad = torch.autograd.grad(nll_loss, params, grad_outputs=z, create_graph=True, retain_graph=True, only_inputs=True)
+                # calculate jvp loss
+                jvp_loss = 0
+                vg_norm, pg_norm = 0, 0
+                for vg, pg in zip(valid_grad, pgrad):
+                    jvp_loss += (vg.data*pg).sum()
+                with torch.no_grad():
+                    dev_grad_dotprod = torch.autograd.grad(jvp_loss, z, retain_graph=False, only_inputs=True)[0]
+
+                # calculate the critic target
+                bt_lang_pair = _get_dds_bt_key(lang_pair)
+
+                reward = dev_grad_dotprod.view(-1, 1)
+                reward = (reward*self.args.reward_scale).data
+
+                target = sample[sample_key][1]['target']
+                B, T = target.size()
+                tgt_nonpad_mask = (target != self.src_dict.pad())
+                discount = [1]
+                for i in range(1, T):
+                    discount.append(discount[-1] * self.args.discount_reward)
+                discount.reverse()
+                if tgt_nonpad_mask.long().sum() == B*T:
+                    discount_values = [discount]
+                else:
+                    discount_values = []
+                    for i in range(B):
+                        cur_len = tgt_nonpad_mask[i].long().sum()
+                        if cur_len == T:
+                            discount_values.append(discount)
+                        else:
+                            cur_discount = discount[-cur_len:] + [0 for _ in range(T-cur_len)]
+                            discount_values.append(cur_discount)
+                discount = torch.FloatTensor(discount_values)
+                B, T = sample[sample_key][1]['target'].size()
+                if reward.is_cuda:
+                    discount = discount.cuda()
+                # B X T
+                reward = reward.repeat(1, T) * discount
+
+                #update the critic model
+                # B X T X dim
+                net_output, extra_state = model.models[bt_lang_pair].extract_features(**sample[sample_key][1]['net_input'])
+                target = sample[sample_key][1]['target'].view(-1, 1)
+                tgt_pad_mask = (target == self.src_dict.pad())
+                if tgt_pad_mask.long().sum() == 0:
+                    tgt_pad_mask = None
+                predicted_scores = self.critic(net_output.data).view(B*T, -1)
+                if tgt_pad_mask is not None:
+                    predicted_scores.masked_fill_(tgt_pad_mask, 0.)
+                predicted_target_scores = predicted_scores.gather(dim=-1, index=target).view(B, T)
+                sqr_loss = ((predicted_target_scores - reward) ** 2).sum()
+                #var_loss = ((predicted_scores - predicted_scores.sum(dim=1, keepdims=True) / predicted_scores.size(1))**2).sum()
+                var_loss = predicted_scores.var(1) 
+
+                loss = (sqr_loss + self.args.lambda_var_loss * var_loss).sum() / sample[sample_key][1]['ntokens']
+                loss.backward()
+                cur_loss_data = loss.item()
+                critic_grad_norm = torch.nn.utils.clip_grad_norm(self.critic.parameters(), self.args.grad_clip)
+                print("critic loss:", cur_loss_data)
+                print("critic grad norm:", critic_grad_norm)
+                self.critic_optimizer.step()
+                self.critic_optimizer.zero_grad()
+            pretrain_critic_steps -= 1
+            if pretrain_critic_steps == 0: break
+        for param_group in self.critic_optimizer.param_groups:
+            param_group['lr'] = self.args.critic_lr
+
     def train_step(self, sample, model, criterion, optimizer, ignore_grad=False, data_score=None):
+        model.train()
+        agg_loss, agg_sample_size, agg_logging_output = 0., 0., {}
+
+        def forward_backward(model, samples, logging_output_key, weight, val_loss_data=None, loss_copy=False, ignore=False):
+            nonlocal agg_loss, agg_sample_size, agg_logging_output
+            if samples is None or len(samples) == 0:
+                return
+            loss, sample_size, logging_output, nll_loss_data, dev_grad_dotprod = criterion(model, samples, val_loss_data=val_loss_data, loss_copy=loss_copy)
+            if ignore: 
+                return nll_loss_data, dev_grad_dotprod
+            if ignore_grad:
+                loss *= 0
+            else:
+                loss *= weight
+            optimizer.backward(loss)
+            agg_loss += loss.detach().item()
+            # TODO make summing of the sample sizes configurable
+            agg_sample_size += sample_size
+            agg_logging_output[logging_output_key] = logging_output
+            return nll_loss_data, dev_grad_dotprod
+
+        #if self.lambda_parallel > 0.0:
+        self.lambda_parallel = 1.
+        self.lambda_otf_bt = 1.
+        for lang_pair in self.lang_pairs:
+            if lang_pair in sample:
+                forward_backward(model.models[lang_pair], sample[lang_pair], lang_pair, self.lambda_parallel)
+ 
+        #if self.lambda_otf_bt > 0.0:
+        for lang_pair in self.lang_pairs:
+            sample_key = _get_bt_dataset_key(lang_pair)
+            if self.args.bt_dds:
+                params = []
+                for p in model.models[lang_pair].parameters():
+                    if p.requires_grad: 
+                        params.append(p)
+                params = params[1:]
+                if self.dev_itr.end_of_epoch():
+                        self.dev_itr.next_epoch_itr(shuffle=True)
+                for valid_sample in self.dev_itr._cur_epoch_itr:
+                    valid_sample = utils.move_to_cuda(valid_sample) if self.cuda else valid_sample
+                    loss, v_sample_size, _, valid_nll_loss, _ = criterion(model.models[lang_pair], valid_sample[lang_pair], loss_copy=True)
+                    valid_nll_loss = valid_nll_loss.sum() / v_sample_size
+                    with torch.no_grad():
+                        valid_grad = torch.autograd.grad(valid_nll_loss, params, only_inputs=True)
+                    break
+            #print(sample[sample_key][0])
+            loss, sample_size, logging_output, nll_loss_data, dev_grad_dotprod = criterion(model.models[lang_pair], sample[sample_key][0], val_loss_data=None, loss_copy=True)
+            
+            if self.args.bt_dds:
+                # B X T
+                nll_loss = nll_loss_data.sum(dim=1) / sample_size
+                z = torch.ones_like(nll_loss).requires_grad_(True)
+                pgrad = torch.autograd.grad(nll_loss, params, grad_outputs=z, create_graph=True, retain_graph=True, only_inputs=True)
+                # calculate jvp loss
+                jvp_loss = 0
+                vg_norm, pg_norm = 0, 0
+                for vg, pg in zip(valid_grad, pgrad):
+                    jvp_loss += (vg.data*pg).sum()
+                    #vg_norm += vg.data.norm(1)
+                    #pg_norm += pg.data.norm(1)
+                with torch.no_grad():
+                    #dev_grad_dotprod = torch.autograd.grad(jvp_loss, z, retain_graph=False)[0]/(vg_norm*pg_norm+1e-10)
+                    dev_grad_dotprod = torch.autograd.grad(jvp_loss, z, retain_graph=False, only_inputs=True)[0]
+            optimizer.backward(loss)
+            agg_loss += loss.detach().item()
+            # TODO make summing of the sample sizes configurable
+            agg_sample_size += sample_size
+            agg_logging_output[sample_key] = logging_output
+
+            if self.args.bt_dds and self.lambda_denoising > 0:
+                # calculate the critic target
+                bt_lang_pair = _get_dds_bt_key(lang_pair)
+
+                reward = dev_grad_dotprod.view(-1, 1)
+                reward = (reward*self.args.reward_scale).data
+
+                target = sample[sample_key][1]['target']
+                B, T = target.size()
+                tgt_nonpad_mask = (target != self.src_dict.pad())
+                discount = [1]
+                for i in range(1, T):
+                    discount.append(discount[-1] * self.args.discount_reward)
+                discount.reverse()
+                if tgt_nonpad_mask.long().sum() == B*T:
+                    discount_values = [discount]
+                else:
+                    discount_values = []
+                    for i in range(B):
+                        cur_len = tgt_nonpad_mask[i].long().sum()
+                        if cur_len == T:
+                            discount_values.append(discount)
+                        else:
+                            cur_discount = discount[-cur_len:] + [0 for _ in range(T-cur_len)]
+                            discount_values.append(cur_discount)
+                discount = torch.FloatTensor(discount_values)
+                B, T = sample[sample_key][1]['target'].size()
+                if reward.is_cuda:
+                    discount = discount.cuda()
+                # B X T
+                reward = reward.repeat(1, T) * discount
+
+                # update the critic model
+                # B X T X dim
+                net_output, extra_state = model.models[bt_lang_pair].extract_features(**sample[sample_key][1]['net_input'])
+                target = sample[sample_key][1]['target'].view(-1, 1)
+                predicted_scores = self.critic(net_output.data).view(B*T, -1)
+                tgt_pad_mask = (target == self.src_dict.pad())
+                if tgt_pad_mask.long().sum() == 0:
+                    tgt_pad_mask = None
+                predicted_scores = self.critic(net_output.data).view(B*T, -1)
+                if tgt_pad_mask is not None:
+                    predicted_scores.masked_fill_(tgt_pad_mask, 0.)
+                predicted_target_scores = predicted_scores.gather(dim=-1, index=target).view(B, T)
+                sqr_loss = ((predicted_target_scores - reward) ** 2).sum()
+                #var_loss = ((predicted_scores - predicted_scores.sum(dim=1, keepdims=True) / predicted_scores.size(1))**2).sum()
+                var_loss = predicted_scores.var(1) 
+
+                critic_loss = (sqr_loss + self.args.lambda_var_loss * var_loss).sum()
+                cur_loss_data = critic_loss.item()
+                print("critic loss:", cur_loss_data)
+                critic_loss.backward()
+                
+
+                # update the actor model
+                # B X T X word
+                net_output, extra_state = model.models[bt_lang_pair](**sample[sample_key][1]['net_input'])
+                actor_lprobs = torch.nn.functional.log_softmax(net_output, dim=-1).view(B*T, -1)
+                actor_loss = -(actor_lprobs * predicted_scores.data).sum() 
+                print("critic scores:")
+                print(predicted_scores) 
+                print("actor loss:", actor_loss.item())
+                actor_loss.backward()
+                self.bt_sample_size += sample[sample_key][1]['ntokens']
+                #agg_logging_output[bt_lang_pair] = logging_output
+                if self.args.bt_parallel_update > 0:
+                    loss, _, logging_output, val_loss_data, _ = criterion(model.models[bt_lang_pair], sample[bt_lang_pair], data_score=reward, loss_copy=False)
+                    loss = loss * self.args.bt_parallel_update
+                    loss.backward()
+                   
+        return agg_loss, agg_sample_size, agg_logging_output, None, None
+
+
+    def train_step_original(self, sample, model, criterion, optimizer, ignore_grad=False, data_score=None):
         model.train()
         agg_loss, agg_sample_size, agg_logging_output = 0., 0., {}
 
@@ -419,16 +701,6 @@ class BtTranslationTask(MultilingualTranslationTask):
                 # update the bt model using dev grad reward
                 bt_lang_pair = _get_dds_bt_key(lang_pair)
 
-                #reward = dev_grad_dotprod.view(-1, 1)
-                #if self.args.baseline:
-                #    if self.baseline is None:
-                #        #self.baseline = (reward.sum()/reward.size()[0]).item()
-                #        self.baseline = 0
-                #    else:
-                #        self.baseline = self.baseline - 0.001 * (self.baseline - (reward.sum()/reward.size()[0]).item())
-                #    reward = reward - self.baseline
-                #reward = (reward*self.args.reward_scale).data
-
                 reward = dev_grad_dotprod.view(-1, 1)
                 if self.args.baseline:
                     if self.baseline is None:
@@ -470,88 +742,6 @@ class BtTranslationTask(MultilingualTranslationTask):
                    
         return agg_loss, agg_sample_size, agg_logging_output, None, None
 
-
-    def train_step_approx(self, sample, model, criterion, optimizer, ignore_grad=False, data_score=None):
-        model.train()
-        agg_loss, agg_sample_size, agg_logging_output = 0., 0., {}
-
-        def forward_backward(model, samples, logging_output_key, weight, val_loss_data=None, loss_copy=False, ignore=False):
-            nonlocal agg_loss, agg_sample_size, agg_logging_output
-            if samples is None or len(samples) == 0:
-                return
-            loss, sample_size, logging_output, nll_loss_data, dev_grad_dotprod = criterion(model, samples, val_loss_data=val_loss_data, loss_copy=loss_copy)
-            if ignore: 
-                return nll_loss_data, dev_grad_dotprod
-            if ignore_grad:
-                loss *= 0
-            else:
-                loss *= weight
-            optimizer.backward(loss)
-            agg_loss += loss.detach().item()
-            # TODO make summing of the sample sizes configurable
-            agg_sample_size += sample_size
-            agg_logging_output[logging_output_key] = logging_output
-            return nll_loss_data, dev_grad_dotprod
-
-        #if self.lambda_parallel > 0.0:
-        self.lambda_parallel = 1.
-        self.lambda_otf_bt = 1.
-        for lang_pair in self.lang_pairs:
-            forward_backward(model.models[lang_pair], sample[lang_pair], lang_pair, self.lambda_parallel)
- 
-        #if self.lambda_otf_bt > 0.0:
-        for lang_pair in self.lang_pairs:
-            sample_key = _get_bt_dataset_key(lang_pair)
-            if self.args.bt_dds:
-                optimizer.clone_param()
-                optimizer.save_cur_train_grad()
-                if self.dev_itr.end_of_epoch():
-                        self.dev_itr.next_epoch_itr(shuffle=True)
-                for valid_sample in self.dev_itr._cur_epoch_itr:
-                    valid_sample = utils.move_to_cuda(valid_sample) if self.cuda else valid_sample
-                    loss, v_sample_size, _, _, _ = criterion(model.models[lang_pair], valid_sample[lang_pair])
-                    optimizer.backward(loss)
-                    break
-                optimizer.save_new_grad(v_sample_size)
-                # get per example reward
-                eta = 1e-7
-                optimizer.add_new_grad(eta=eta)
-                with torch.no_grad():
-                    loss, _, _, val_loss_data, _ = criterion(model.models[lang_pair], sample[sample_key][0], loss_copy=True)
-                optimizer.switch_param(clear_cache=True)
-                optimizer.reset_cur_train_grad()
-            else:
-                val_loss_data = None
-            #print(sample[sample_key][0])
-            nll_loss_data, dev_grad_dotprod = forward_backward(model.models[lang_pair], sample[sample_key][0], sample_key, self.lambda_otf_bt, val_loss_data=val_loss_data, loss_copy=True)
-            
-            if self.args.bt_dds and self.lambda_denoising > 0:
-                # update the bt model using dev grad reward
-                bt_lang_pair = _get_dds_bt_key(lang_pair)
-                #src, tgt = lang_pair.split("-")
-                #bt_lang_pair = tgt + "-" + src
-                reward = dev_grad_dotprod / eta
-                if self.args.baseline:
-                    if self.baseline is None:
-                        #self.baseline = (reward.sum()/reward.size()[0]).item()
-                        self.baseline = 0
-                    else:
-                        self.baseline = self.baseline - 0.001 * (self.baseline - (reward.sum()/reward.size()[0]).item())
-                    reward = reward - self.baseline
-                #reward = reward * 0.0001
-                reward = reward * self.args.reward_scale
-
-                loss, _, logging_output, val_loss_data, _ = criterion(model.models[bt_lang_pair], sample[sample_key][1], data_score=reward, loss_copy=False)
-                loss = loss * self.lambda_denoising
-                #loss = loss * 0
-                loss.backward()
-                self.data_optimizer.step()
-                self.data_optimizer.zero_grad()
-                #print(self.lambda_denoising)
-                agg_logging_output[bt_lang_pair] = logging_output
-                   
-        return agg_loss, agg_sample_size, agg_logging_output, None, None
-
     #def valid_step(self, sample, model, criterion):
     #    model.eval()
     #    with torch.no_grad():
@@ -589,8 +779,22 @@ class BtTranslationTask(MultilingualTranslationTask):
         if self.lambda_denoising_steps is not None:
             self.lambda_denoising = lambda_step_func(self.lambda_denoising_steps, num_updates)
         if self.args.bt_dds:
+            for param in self.critic.parameters(): param.grad /= self.bt_sample_size
+            for param in self.bt_model.parameters():
+                if self.args.norm_by_vocab:
+                    param.grad /= (self.bt_sample_size*len(self.src_dict))
+                else: 
+                    param.grad /= self.bt_sample_size
+            actor_grad_norm = torch.nn.utils.clip_grad_norm(self.bt_model.parameters(), self.args.grad_clip)
+            print("actor grad norm:", actor_grad_norm)
             self.data_optimizer.step()
             self.data_optimizer.zero_grad()
+            if self.args.actor_critic:
+                critic_grad_norm = torch.nn.utils.clip_grad_norm(self.critic.parameters(), self.args.grad_clip)
+                print("critic grad norm:", critic_grad_norm)
+                self.critic_optimizer.step()
+                self.critic_optimizer.zero_grad()
+            self.bt_sample_size = 0
 
     def aggregate_logging_outputs(self, logging_outputs, criterion):
         # aggregate logging outputs for each language pair
