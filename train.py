@@ -73,7 +73,8 @@ def main(args, init_distributed=False):
     # pretrain data actor
     if args.pretrain_data_actor and args.data_actor == 'lan' and args.data_actor_step_update:
         trainer.pretrain_data_actor()
-
+    if hasattr(args, "actor_critic") and args.actor_critic:
+        trainer.task.pretrain_critic(model, criterion)
     # Train until the learning rate gets too small
     max_epoch = args.max_epoch or math.inf
     max_update = args.max_update or math.inf
