@@ -291,6 +291,7 @@ class MultilingualTranslationTask(FairseqTask):
                     for lang_pair in lang_pairs
                 ]),
                 eval_key=None if training else "%s-%s" % (source_lang, target_lang),
+                upsample_factor=self.args.upsample_factor,
             )
         elif self.dataset_type == 'multi':
             self.datasets[split] =  MultiCorpusSampledDataset(
