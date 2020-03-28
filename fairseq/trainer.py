@@ -167,6 +167,12 @@ class Trainer(object):
             self.score_log = open(args.score_log, 'w')
         else:
             self.score_log = None
+        self.rolling_denom = None
+        self.s1 = torch.FloatTensor([np.log(0.01)])
+        self.s2 = torch.FloatTensor([np.log(0.99)])
+        if self.cuda:
+            self.s1 = self.s1.cuda()
+            self.s2 = self.s2.cuda()
 
     def init_meters(self, args):
         self.meters = OrderedDict()
@@ -1187,49 +1193,23 @@ class Trainer(object):
             cached_loss = []
             trained_sample_idx = []
             example_size = []
-            if self.args.out_score_type == "word_score":
-                score_sum, word_size = 0, 0 
-                for i, sample in enumerate(samples):
-                    sample = self._prepare_sample(sample)
-                    out, pad_mask, trg_len = self.data_actor(sample)
-                    data_actor_out.append(out)
-                    pad_masks.append(pad_mask)
-                    #normed_data_score.append(torch.exp(out.data*0.1).masked_fill_(pad_mask, 0.))
-                    normed_data_score.append(torch.exp(out.data*self.args.exp_constant).masked_fill_(pad_mask, 0.))
-                    e_size = sample['nsentences']
-                    example_size.append(e_size)
-                    score_sum = score_sum + normed_data_score[-1].sum().item()
-                    tgt_lens.append(trg_len.sum().item())
-                    word_size = word_size + tgt_lens[-1]
-                for i, out in enumerate(normed_data_score):
-                    normed_data_score[i] = (out.data / score_sum * word_size)
-                #print(normed_data_score)
-            elif self.args.out_score_type == "proj_word_score":
-                score_sum, word_size = 0, 0 
-                for i, sample in enumerate(samples):
-                    sample = self._prepare_sample(sample)
-                    out, pad_mask, trg_len, proj_out = self.data_actor(sample)
-                    data_actor_out.append(out)
-                    pad_masks.append(pad_mask)
-                    data_actor_proj_out.append(proj_out)
-                    normed_data_score.append(out.data.masked_fill_(pad_mask, 0.))
-                    e_size = sample['nsentences']
-                    example_size.append(e_size)
-                    score_sum = score_sum + normed_data_score[-1].sum().item()
-                    tgt_lens.append(trg_len.sum().item())
-                    word_size = word_size + tgt_lens[-1]
-                for i, out in enumerate(normed_data_score):
-                    #normed_data_score[i] = (out.data / score_sum * word_size)
-                    normed_data_score[i] = (out.data + self.args.data_actor_proj_post_bias)
-            else:
-                for i, sample in enumerate(samples):
-                    sample = self._prepare_sample(sample)
-                    out, pad_mask, trg_len = self.data_actor(sample)
-                    data_actor_out.append(out)
-                    pad_masks.append(pad_mask)
-                    e_size = sample['nsentences']
-                    example_size.append(e_size)
+
+            for i, sample in enumerate(samples):
+                sample = self._prepare_sample(sample)
+                out, pad_mask, trg_len = self.data_actor(sample)
+                data_actor_out.append(out)
+                pad_masks.append(pad_mask)
+                e_size = sample['nsentences']
+                example_size.append(e_size)
+                if self.rolling_denom is not None:
+                    cur_denom = torch.logsumexp(data_actor_out[-1], dim=0)
+                    self.rolling_denom = torch.logsumexp(torch.FloatTensor([self.s1+self.rolling_denom, self.s2+cur_denom.data]), dim=0)
+                    cur_scores = torch.exp(data_actor_out[-1] - self.rolling_denom)
+                    normed_data_score.append(cur_scores * e_size)
+                else:
+                    self.rolling_denom = torch.logsumexp(data_actor_out[-1], dim=0).data
                     normed_data_score.append(torch.softmax(data_actor_out[-1], dim=0) * e_size)
+
         else:
             normed_data_score = [None for _ in range(len(samples))]
 
