@@ -21,17 +21,19 @@ export PYTHONPATH="$(pwd)"
 
 echo 'slurm id '$SLURM_JOB_ID >> $MODEL_DIR/train.log
 
-CUDA_VISIBLE_DEVICES=$1 python train.py data-bin/bt_iwslt_ende/ \
+CUDA_VISIBLE_DEVICES=$1 python train.py data-bin/bt_iwslt_deen5k/ \
 	  --task bt_translation \
 	  --arch multilingual_transformer_iwslt_de_en \
-	  --max-epoch 20 \
-          --dataset-type "round_robin"  \
-          --lang-pairs "en-de" \
-          --eval-lang-pairs "en-de" \
-          --only-optim-model-key "en-de" \
+	  --max-epoch 30 \
+          --dataset-type "round_robin" --upsample-factor 1 \
+          --lang-pairs "de-en" \
+          --eval-lang-pairs "de-en" \
+          --only-optim-model-key "de-en" \
           --share-all-langpair-embeddings \
+	  --eval-bleu --remove-bpe sentencepiece \
 	  --reset-optimizer --reset-meters --reset-dataloader \
 	  --no-epoch-checkpoints \
+    --norm-by-vocab 1 \
     --bt-optimizer-momentum 0.9 --bt-optimizer-nesterov --bt-optimizer OPTIM \
     --bt_dds --actor-critic --discount-reward DIS \
     --critic-pretrain-steps CSTEPS --critic-pretrain-lr CPLR --critic-lr CLR --critic-optimizer COPTIM --lambda-var-loss VLOSS \
@@ -45,7 +47,7 @@ CUDA_VISIBLE_DEVICES=$1 python train.py data-bin/bt_iwslt_ende/ \
 	  --criterion 'label_smoothed_cross_entropy' --label-smoothing 0.1 \
 	  --max-tokens 2000 \
 	  --update-freq 2 \
-	  --seed 2 \
+	  --seed SEED \
   	  --max-source-positions 150 --max-target-positions 150 \
   	  --save-dir $MODEL_DIR \
           --encoder-normalize-before --decoder-normalize-before \
