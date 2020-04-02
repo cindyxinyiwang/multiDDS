@@ -13,7 +13,7 @@ from . import data_utils, FairseqDataset
 def collate(
     samples, pad_idx, eos_idx, left_pad_source=True, left_pad_target=False,
     input_feeding=True, char_dim=None, reverse=False, src_tag_idx=-1, tgt_tag_idx=-1,
-    src_tau=-1, tgt_tau=-1, src_dict=None, tgt_dict=None, id_to_sample_probabilities=None,
+    src_tau=-1, tgt_tau=-1, src_dict=None, tgt_dict=None, id_to_sample_probabilities=None, lm=None,
 ):
     if len(samples) == 0:
         return {}
@@ -95,9 +95,9 @@ def collate(
     
     # sample augmented data based on switchout
     if src_tau >= 0:
-        src_tokens = data_utils.switchout(src_tokens, src_lengths, src_tau, src_dict, id_to_sample_probabilities=id_to_sample_probabilities)
+        src_tokens = data_utils.switchout(src_tokens, src_lengths, src_tau, src_dict, id_to_sample_probabilities=id_to_sample_probabilities, lm=lm)
     if tgt_tau >= 0:
-        target = data_utils.switchout(target, target_lengths, tgt_tau, tgt_dict, id_to_sample_probabilities=id_to_sample_probabilities)
+        target = data_utils.switchout(target, target_lengths, tgt_tau, tgt_dict, id_to_sample_probabilities=id_to_sample_probabilities, lm=lm)
 
     batch = {
         'id': id,
@@ -149,12 +149,14 @@ class LanguagePairDataset(FairseqDataset):
         left_pad_source=True, left_pad_target=False,
         max_source_positions=1024, max_target_positions=1024,
         shuffle=True, input_feeding=True, remove_eos_from_source=False, append_eos_to_target=False,
-        src_tag=None, tgt_tag=None, src_tau=-1, tgt_tau=-1, id_to_sample_probabilities=None,
+        src_tag=None, tgt_tag=None, src_tau=-1, tgt_tau=-1, id_to_sample_probabilities=None, lm=None,
     ):
         if tgt_dict is not None:
             assert src_dict.pad() == tgt_dict.pad()
             assert src_dict.eos() == tgt_dict.eos()
             assert src_dict.unk() == tgt_dict.unk()
+        self.id_to_sample_probabilities = id_to_sample_probabilities
+        self.lm = lm
         self.src = src
         self.tgt = tgt
         self.src_tau = src_tau
@@ -252,6 +254,7 @@ class LanguagePairDataset(FairseqDataset):
             input_feeding=self.input_feeding, char_dim=len(self.src_dict),
             src_tag_idx=self.src_tag_idx, tgt_tag_idx=self.tgt_tag_idx,
             src_tau=self.src_tau, tgt_tau=self.tgt_tau, src_dict=self.src_dict, tgt_dict=self.tgt_dict,
+            id_to_sample_probabilities=self.id_to_sample_probabilities, lm=self.lm,
         )
         return item
         #if samples[0]["target"] is None: return item

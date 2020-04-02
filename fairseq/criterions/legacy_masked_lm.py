@@ -61,13 +61,15 @@ class LegacyMaskedLmLoss(FairseqCriterion):
                             help='weight for next sentence prediction'
                                  ' loss (default 1)')
 
-    def forward(self, model, sample, reduce=True):
+    def forward(self, model, sample, reduce=True, data_score=None, loss_copy=None):
         """Compute the loss for the given sample.
         Returns a tuple with three elements:
         1) the loss
         2) the sample size, which is used as the denominator for the gradient
         3) logging outputs to display while training
         """
+        #print(sample)
+        sample = list(sample.values())[0]
         lm_logits, output_metadata = model(**sample["net_input"])
 
         # reshape lm_logits from (N,T,C) to (N*T,C)
@@ -122,7 +124,7 @@ class LegacyMaskedLmLoss(FairseqCriterion):
             'nsentences': nsentences,
             'sample_size': sample_size,
         }
-        return loss, sample_size, logging_output
+        return loss, sample_size, logging_output, None, None
 
     @staticmethod
     def aggregate_logging_outputs(logging_outputs):

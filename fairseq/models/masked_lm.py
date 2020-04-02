@@ -6,6 +6,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import copy
 
 from fairseq import utils
 from fairseq.models import (
@@ -354,4 +355,29 @@ def xlm_architecture(args):
     args.encoder_normalize_before = getattr(args, 'encoder_normalize_before', False)
     args.pooler_activation_fn = getattr(args, 'pooler_activation_fn', 'tanh')
     args.apply_bert_init = getattr(args, 'apply_bert_init', True)
+    base_architecture(args)
+
+@register_model_architecture('masked_lm', 'xlm_small')
+def xlm_architecture(args):
+    args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 256)
+    args.share_encoder_input_output_embed = getattr(
+        args, 'share_encoder_input_output_embed', True)
+    args.no_token_positional_embeddings = getattr(
+        args, 'no_token_positional_embeddings', False)
+    args.encoder_learned_pos = getattr(args, 'encoder_learned_pos', True)
+    args.num_segment = getattr(args, 'num_segment', 1)
+
+    args.encoder_layers = getattr(args, 'encoder_layers', 6)
+
+    args.encoder_attention_heads = getattr(args, 'encoder_attention_heads', 4)
+    args.encoder_ffn_embed_dim = getattr(args, 'encoder_ffn_embed_dim', 512)
+    args.bias_kv = getattr(args, 'bias_kv', False)
+    args.zero_attn = getattr(args, 'zero_attn', False)
+
+    args.sent_loss = getattr(args, 'sent_loss', False)
+
+    args.activation_fn = getattr(args, 'activation_fn', 'gelu')
+    args.encoder_normalize_before = getattr(args, 'encoder_normalize_before', False)
+    args.pooler_activation_fn = getattr(args, 'pooler_activation_fn', 'tanh')
+    args.apply_bert_init = getattr(args, 'apply_bert_init', False)
     base_architecture(args)
