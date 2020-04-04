@@ -346,6 +346,7 @@ def get_parser(desc, default_task='translation'):
     parser.add_argument('--only-optim-model-key', type=str, default=None)
     parser.add_argument('--score-log', type=str, default=None)
 
+    parser.add_argument('--batch-by-size', type=int, default=1)
     from fairseq.registry import REGISTRIES
     for registry_name, REGISTRY in REGISTRIES.items():
         parser.add_argument(

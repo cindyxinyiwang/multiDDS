@@ -149,7 +149,7 @@ class LanguagePairDataset(FairseqDataset):
         left_pad_source=True, left_pad_target=False,
         max_source_positions=1024, max_target_positions=1024,
         shuffle=True, input_feeding=True, remove_eos_from_source=False, append_eos_to_target=False,
-        src_tag=None, tgt_tag=None, src_tau=-1, tgt_tau=-1,
+        src_tag=None, tgt_tag=None, src_tau=-1, tgt_tau=-1, batch_by_size=True,
     ):
         if tgt_dict is not None:
             assert src_dict.pad() == tgt_dict.pad()
@@ -168,6 +168,7 @@ class LanguagePairDataset(FairseqDataset):
         self.max_source_positions = max_source_positions
         self.max_target_positions = max_target_positions
         self.shuffle = shuffle
+        self.batch_by_size = batch_by_size 
         self.input_feeding = input_feeding
         self.remove_eos_from_source = remove_eos_from_source
         self.append_eos_to_target = append_eos_to_target
@@ -287,6 +288,8 @@ class LanguagePairDataset(FairseqDataset):
             indices = np.random.permutation(len(self))
         else:
             indices = np.arange(len(self))
+        if not self.batch_by_size:
+            return indices
         if self.tgt_sizes is not None:
             indices = indices[np.argsort(self.tgt_sizes[indices], kind='mergesort')]
         return indices[np.argsort(self.src_sizes[indices], kind='mergesort')]
