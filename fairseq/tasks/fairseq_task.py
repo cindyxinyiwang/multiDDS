@@ -255,6 +255,36 @@ class FairseqTask(object):
             optimizer.backward(loss)
         return loss, sample_size, logging_output, loss_data, dev_grad_dotprod
 
+    def get_grad_wrt_input(self, sample, model, criterion):
+        """
+        Do forward and backward, and return the loss as computed by *criterion*
+        for the given *model* and *sample*.
+
+        Args:
+            sample (dict): the mini-batch. The format is defined by the
+                :class:`~fairseq.data.FairseqDataset`.
+            model (~fairseq.models.BaseFairseqModel): the model
+            criterion (~fairseq.criterions.FairseqCriterion): the criterion
+            optimizer (~fairseq.optim.FairseqOptimizer): the optimizer
+            ignore_grad (bool): multiply loss by 0 if this is set to True
+
+        Returns:
+            tuple:
+                - the loss
+                - the sample size, which is used as the denominator for the
+                  gradient
+                - logging outputs to display while training
+        """
+        model.train()
+        model.decoder.sentence_encoder.set_gradient_tracking_mode(True)
+        loss, sample_size, logging_output, loss_data, dev_grad_dotprod = criterion(model, sample, data_score=None, loss_copy=False)
+        loss.backward()
+        # BxTxD
+        input_gradient = model.decoder.sentence_encoder.tracker["token_embeddings"].grad
+        grad_norm = torch.norm(input_gradient, p=2, dim=2) 
+        return grad_norm
+
+
     def valid_step(self, sample, model, criterion):
         model.eval()
         with torch.no_grad():

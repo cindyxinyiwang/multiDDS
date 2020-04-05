@@ -13,7 +13,7 @@ from . import data_utils, FairseqDataset
 def collate(
     samples, pad_idx, eos_idx, left_pad_source=True, left_pad_target=False,
     input_feeding=True, char_dim=None, reverse=False, src_tag_idx=-1, tgt_tag_idx=-1,
-    src_tau=-1, tgt_tau=-1, src_dict=None, tgt_dict=None, id_to_sample_probabilities=None, lm=None,
+    src_tau=-1, tgt_tau=-1, src_dict=None, tgt_dict=None, id_to_sample_probabilities=None, lm=None, src_gradnorm_tau=1,
 ):
     if len(samples) == 0:
         return {}
@@ -73,6 +73,18 @@ def collate(
         id = id.index_select(0, sort_order)
         src_tokens = src_tokens.index_select(0, sort_order)
 
+    if samples[0]['src_gradnorm'] is not None:
+        src_gradnorm = data_utils.collate_tokens(
+            [s['src_gradnorm'] for s in samples],
+            float("-inf"), eos_idx, left_pad=left_pad_source, move_eos_to_beginning=False,
+        )
+        src_gradnorm = torch.softmax(src_gradnorm.index_select(0, sort_order)*src_gradnorm_tau, dim=1)
+        print(src_gradnorm)
+        print(src_tokens)
+    else:
+        src_gradnorm = None
+   
+
     prev_output_tokens = None
     target = None
     if samples[0].get(t_key, None) is not None:
@@ -95,7 +107,7 @@ def collate(
     
     # sample augmented data based on switchout
     if src_tau >= 0:
-        src_tokens = data_utils.switchout(src_tokens, src_lengths, src_tau, src_dict, id_to_sample_probabilities=id_to_sample_probabilities, lm=lm)
+        src_tokens = data_utils.switchout(src_tokens, src_lengths, src_tau, src_dict, id_to_sample_probabilities=id_to_sample_probabilities, lm=lm, src_gradnorm=src_gradnorm)
     if tgt_tau >= 0:
         target = data_utils.switchout(target, target_lengths, tgt_tau, tgt_dict, id_to_sample_probabilities=id_to_sample_probabilities, lm=lm)
 
@@ -149,7 +161,8 @@ class LanguagePairDataset(FairseqDataset):
         left_pad_source=True, left_pad_target=False,
         max_source_positions=1024, max_target_positions=1024,
         shuffle=True, input_feeding=True, remove_eos_from_source=False, append_eos_to_target=False,
-        src_tag=None, tgt_tag=None, src_tau=-1, tgt_tau=-1, id_to_sample_probabilities=None, lm=None,
+        src_tag=None, tgt_tag=None, src_tau=-1, tgt_tau=-1, id_to_sample_probabilities=None, 
+        lm=None, idx_to_src_gradnorm=None
     ):
         if tgt_dict is not None:
             assert src_dict.pad() == tgt_dict.pad()
@@ -157,6 +170,7 @@ class LanguagePairDataset(FairseqDataset):
             assert src_dict.unk() == tgt_dict.unk()
         self.id_to_sample_probabilities = id_to_sample_probabilities
         self.lm = lm
+        self.idx_to_src_gradnorm = idx_to_src_gradnorm
         self.src = src
         self.tgt = tgt
         self.src_tau = src_tau
@@ -203,10 +217,21 @@ class LanguagePairDataset(FairseqDataset):
             if self.src[index][-1] == eos:
                 src_item = self.src[index][:-1]
 
+        if self.idx_to_src_gradnorm is not None:
+            src_gradnorm_item = self.idx_to_src_gradnorm[index]
+            if not self.remove_eos_from_source: src_gradnorm_item.append(-float("inf"))
+            #print(index)
+            #print(len(src_item))
+            #print(len(src_gradnorm_item))
+            assert len(src_item) == len(src_gradnorm_item)
+            src_gradnorm_item = torch.FloatTensor(src_gradnorm_item)
+        else:
+            src_gradnorm_item = None
         return {
             'id': index,
             'source': src_item,
             'target': tgt_item,
+            'src_gradnorm': src_gradnorm_item,
         }
 
     def __len__(self):
@@ -254,7 +279,7 @@ class LanguagePairDataset(FairseqDataset):
             input_feeding=self.input_feeding, char_dim=len(self.src_dict),
             src_tag_idx=self.src_tag_idx, tgt_tag_idx=self.tgt_tag_idx,
             src_tau=self.src_tau, tgt_tau=self.tgt_tau, src_dict=self.src_dict, tgt_dict=self.tgt_dict,
-            id_to_sample_probabilities=self.id_to_sample_probabilities, lm=self.lm,
+            id_to_sample_probabilities=self.id_to_sample_probabilities, lm=self.lm, src_gradnorm_tau=self.idx_to_src_gradnorm['tau']
         )
         return item
         #if samples[0]["target"] is None: return item

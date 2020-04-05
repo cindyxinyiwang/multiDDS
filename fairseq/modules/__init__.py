@@ -29,8 +29,10 @@ from .unfold import unfold1d
 from .transformer_layer import TransformerDecoderLayer, TransformerEncoderLayer
 from .vggblock import VGGBlock
 from .SDEembedding import SDEembedding
+from .variable_tracker import VariableTracker
 
 __all__ = [
+    'VariableTracker',
     'AdaptiveInput',
     'AdaptiveSoftmax',
     'BeamableMM',

@@ -69,7 +69,7 @@ class SentencePredictionCriterion(FairseqCriterion):
             logging_output.update(
                 ncorrect=(preds == targets).sum().item()
             )
-        return loss, sample_size, logging_output, None
+        return loss, sample_size, logging_output, None, None
 
     @staticmethod
     def aggregate_logging_outputs(logging_outputs):

@@ -29,7 +29,8 @@ def load_langpair_dataset(
     tgt, tgt_dict,
     combine, dataset_impl, upsample_primary,
     left_pad_source, left_pad_target, max_source_positions, max_target_positions,
-    src_tag=None, tgt_tag=None, src_tau=-1, tgt_tau=-1, epoch=0, id_to_sample_probabilities=None, lm=None 
+    src_tag=None, tgt_tag=None, src_tau=-1, tgt_tau=-1, epoch=0, id_to_sample_probabilities=None, lm=None,
+    idx_to_src_gradnorm=None 
 ):
     def split_exists(split, src, tgt, lang, data_path):
         filename = os.path.join(data_path, '{}.{}-{}.{}'.format(split, src, tgt, lang))
@@ -87,6 +88,7 @@ def load_langpair_dataset(
         tgt_tau=tgt_tau,
         id_to_sample_probabilities=id_to_sample_probabilities,
         lm=lm,
+        idx_to_src_gradnorm=idx_to_src_gradnorm,
     )
 
 
@@ -142,14 +144,30 @@ class TranslationTask(FairseqTask):
         parser.add_argument('--dialect-src-wordfreq', default=None, type=str,
                             help='word frequency file of the dialect train source')
         parser.add_argument('--dialect-tau', default=1., type=float)
+        parser.add_argument('--src-gradnorm-tau', default=1., type=float)
         parser.add_argument('--lm-path', default=None, type=str)
         parser.add_argument('--lm-dict-path', default=None, type=str)
+        parser.add_argument('--src-gradnorm-path', default=None, type=str)
 
     def __init__(self, args, src_dict, tgt_dict):
         super().__init__(args)
         self.src_dict = src_dict
         self.tgt_dict = tgt_dict
         self.cuda = torch.cuda.is_available() and not args.cpu
+        if args.src_gradnorm_path is not None:
+            self.idx_to_src_gradnorm = {}
+            with open(args.src_gradnorm_path, 'r') as myfile:
+                for line in myfile:
+                    if line.startswith("N-"):
+                        toks = line.split()
+                        id = int(toks[0].split('-')[1])
+                        if id%2 == 0:
+                            id = int(id / 2)
+                            assert id not in self.idx_to_src_gradnorm
+                            self.idx_to_src_gradnorm[id] = [float(t) for t in toks[1:]]
+            self.idx_to_src_gradnorm['tau'] = args.src_gradnorm_tau
+        else:
+            self.idx_to_src_gradnorm = None
 
     @classmethod
     def setup_task(cls, args, **kwargs):
@@ -198,6 +216,7 @@ class TranslationTask(FairseqTask):
             a :class:`~fairseq.models.BaseFairseqModel` instance
         """
         from fairseq import models
+
         # build and load LM
         if args.lm_path is not None:
             self.dictionary = MaskedLMDictionary.load(args.lm_dict_path)
@@ -313,6 +332,7 @@ class TranslationTask(FairseqTask):
             epoch=epoch,
             id_to_sample_probabilities=pass_item,
             lm=mlm,
+            idx_to_src_gradnorm=self.idx_to_src_gradnorm,
         )
 
     def build_dataset_for_inference(self, src_tokens, src_lengths):

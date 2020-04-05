@@ -14,7 +14,7 @@ from fairseq.modules import (
     PositionalEmbedding,
     TransformerSentenceEncoderLayer,
 )
-
+from .variable_tracker import VariableTracker
 
 def init_bert_params(module):
     """
@@ -102,6 +102,8 @@ class TransformerSentenceEncoder(nn.Module):
         self.use_position_embeddings = use_position_embeddings
         self.apply_bert_init = apply_bert_init
         self.learned_pos_embedding = learned_pos_embedding
+        self.tracker = VariableTracker()
+        self.set_gradient_tracking_mode(False) 
 
         self.embed_tokens = nn.Embedding(
             self.vocab_size, self.embedding_dim, self.padding_idx
@@ -166,6 +168,10 @@ class TransformerSentenceEncoder(nn.Module):
         for layer in range(n_trans_layers_to_freeze):
             freeze_module_params(self.layers[layer])
 
+    def set_gradient_tracking_mode(self, mode=True):
+        self.tracker.reset()
+        self.track_gradients = mode
+
     def forward(
         self,
         tokens: torch.Tensor,
@@ -178,8 +184,10 @@ class TransformerSentenceEncoder(nn.Module):
         padding_mask = tokens.eq(self.padding_idx)
         if not padding_mask.any():
             padding_mask = None
-
+         
+        self.tracker.reset()
         x = self.embed_tokens(tokens)
+        self.tracker.track(x, "token_embeddings", retain_grad=self.track_gradients)
 
         if self.embed_scale is not None:
             x *= self.embed_scale

@@ -18,7 +18,7 @@ import torch
 
 from fairseq.data import iterators
 
-def switchout(tokens, lengths, tau, dic, id_to_sample_probabilities=None, lm=None):
+def switchout(tokens, lengths, tau, dic, id_to_sample_probabilities=None, lm=None, src_gradnorm=None):
     # first sample the number of words to corrupt
     max_len = tokens.size(1)
 
@@ -39,7 +39,11 @@ def switchout(tokens, lengths, tau, dic, id_to_sample_probabilities=None, lm=Non
     lengths = lengths.float()
 
     # sample the indices to corrupt
-    corrupt_pos = num_words.div_(lengths).unsqueeze(1).expand_as(tokens).contiguous().masked_fill_(sample_mask, 0)
+    if src_gradnorm is not None:
+        corrupt_pos = src_gradnorm * num_words.unsqueeze(1)
+        corrupt_pos[corrupt_pos>1.] = 1.
+    else:
+        corrupt_pos = num_words.div_(lengths).unsqueeze(1).expand_as(tokens).contiguous().masked_fill_(sample_mask, 0)
     #corrupt_pos = torch.bernoulli(corrupt_pos, out=corrupt_pos).byte().type(torch.uint8)
     corrupt_pos = torch.bernoulli(corrupt_pos, out=corrupt_pos).byte().bool()
     total_words = int(corrupt_pos.sum())
