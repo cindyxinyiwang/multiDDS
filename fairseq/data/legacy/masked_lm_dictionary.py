@@ -20,8 +20,23 @@ class MaskedLMDictionary(Dictionary):
     ):
         super().__init__(pad, eos, unk)
         self.mask_word = mask
-        self.mask_index = self.add_symbol(mask)
-        self.nspecial = len(self.symbols)
+        self.nspecial = len(self.symbols) + 1
+
+    @classmethod
+    def load(cls, f, ignore_utf_errors=False):
+        """Loads the dictionary from a text file with the format:
+
+        ```
+        <symbol0> <count0>
+        <symbol1> <count1>
+        ...
+        ```
+        """
+        d = cls()
+        d.add_from_file(f, ignore_utf_errors)
+        d.mask_index = d.add_symbol(d.mask_word)
+        return d
+
 
     def mask(self):
         """Helper to get index of mask symbol"""
