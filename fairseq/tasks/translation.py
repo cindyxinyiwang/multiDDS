@@ -164,8 +164,7 @@ class TranslationTask(FairseqTask):
                         if id%2 == 0:
                             id = int(id / 2)
                             assert id not in self.idx_to_src_gradnorm
-                            self.idx_to_src_gradnorm[id] = [float(t) for t in toks[1:]]
-            self.idx_to_src_gradnorm['tau'] = args.src_gradnorm_tau
+                            self.idx_to_src_gradnorm[id] = scipy.special.softmax([float(t)*args.src_gradnorm_tau for t in toks[1:]]).tolist()
         else:
             self.idx_to_src_gradnorm = None
 
@@ -315,10 +314,13 @@ class TranslationTask(FairseqTask):
             src_tau = -1 
             tgt_tau = -1
             mlm = None
+            idx_to_src_gradnorm = None
         else: 
             src_tau = self.args.source_tau 
             tgt_tau = self.args.target_tau 
             mlm = self.mlm
+            idx_to_src_gradnorm = self.idx_to_src_gradnorm
+
         self.datasets[split] = load_langpair_dataset(
             data_path, split, src, self.src_dict, tgt, self.tgt_dict,
             combine=combine, dataset_impl=self.args.dataset_impl,
@@ -332,7 +334,7 @@ class TranslationTask(FairseqTask):
             epoch=epoch,
             id_to_sample_probabilities=pass_item,
             lm=mlm,
-            idx_to_src_gradnorm=self.idx_to_src_gradnorm,
+            idx_to_src_gradnorm=idx_to_src_gradnorm,
         )
 
     def build_dataset_for_inference(self, src_tokens, src_lengths):

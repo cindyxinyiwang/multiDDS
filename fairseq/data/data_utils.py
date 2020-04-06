@@ -67,15 +67,19 @@ def switchout(tokens, lengths, tau, dic, id_to_sample_probabilities=None, lm=Non
         sampled_tokens = tokens.masked_scatter_(corrupt_pos, corrupt_val)
     elif lm is not None:
         lm_input_tokens = tokens.masked_fill_(corrupt_pos, lm.dictionary.mask())
+        # append bos
+        lm_input_tokens = torch.cat([torch.ones(tokens.size(0), 1).long().fill_(lm.dictionary.bos()), tokens], dim=1)
         # B X T X C
         # do not sample mask idx
         if next(lm.parameters()).is_cuda: 
             lm_input_tokens = lm_input_tokens.cuda()
             corrupt_pos = corrupt_pos.cuda()
             tokens = tokens.cuda()
-        lm_output = lm(lm_input_tokens)[0][:,:,:-1]
+        #lm_output = lm(lm_input_tokens)[0][:,:,:-1]
+        lm_output = lm(lm_input_tokens)[0][:,1:,:-1]
         B, T, C = lm_output.size()
-        lm_output = torch.softmax(lm_output.view(-1, C)*lm.dialect_tau, dim=1)
+        #lm_output = torch.softmax(lm_output.view(-1, C)*lm.dialect_tau, dim=1)
+        lm_output = torch.softmax(lm_output.reshape(-1, C)*lm.dialect_tau, dim=1)
         lm_prob_dist = torch.distributions.Categorical(lm_output)
         samples = lm_prob_dist.sample().view(B, T)
         tokens[corrupt_pos] = samples[corrupt_pos]

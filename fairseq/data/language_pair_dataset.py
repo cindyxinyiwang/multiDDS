@@ -13,7 +13,7 @@ from . import data_utils, FairseqDataset
 def collate(
     samples, pad_idx, eos_idx, left_pad_source=True, left_pad_target=False,
     input_feeding=True, char_dim=None, reverse=False, src_tag_idx=-1, tgt_tag_idx=-1,
-    src_tau=-1, tgt_tau=-1, src_dict=None, tgt_dict=None, id_to_sample_probabilities=None, lm=None, src_gradnorm_tau=1,
+    src_tau=-1, tgt_tau=-1, src_dict=None, tgt_dict=None, id_to_sample_probabilities=None, lm=None,
 ):
     if len(samples) == 0:
         return {}
@@ -76,11 +76,11 @@ def collate(
     if samples[0]['src_gradnorm'] is not None:
         src_gradnorm = data_utils.collate_tokens(
             [s['src_gradnorm'] for s in samples],
-            float("-inf"), eos_idx, left_pad=left_pad_source, move_eos_to_beginning=False,
+            0., eos_idx, left_pad=left_pad_source, move_eos_to_beginning=False,
         )
-        src_gradnorm = torch.softmax(src_gradnorm.index_select(0, sort_order)*src_gradnorm_tau, dim=1)
-        print(src_gradnorm)
-        print(src_tokens)
+        src_gradnorm = src_gradnorm.index_select(0, sort_order)
+        #print(src_gradnorm)
+        #print(src_tokens)
     else:
         src_gradnorm = None
    
@@ -219,7 +219,7 @@ class LanguagePairDataset(FairseqDataset):
 
         if self.idx_to_src_gradnorm is not None:
             src_gradnorm_item = self.idx_to_src_gradnorm[index]
-            if not self.remove_eos_from_source: src_gradnorm_item.append(-float("inf"))
+            if not self.remove_eos_from_source and len(src_item)==len(src_gradnorm_item)+1: src_gradnorm_item.append(0.)
             #print(index)
             #print(len(src_item))
             #print(len(src_gradnorm_item))
@@ -279,7 +279,7 @@ class LanguagePairDataset(FairseqDataset):
             input_feeding=self.input_feeding, char_dim=len(self.src_dict),
             src_tag_idx=self.src_tag_idx, tgt_tag_idx=self.tgt_tag_idx,
             src_tau=self.src_tau, tgt_tau=self.tgt_tau, src_dict=self.src_dict, tgt_dict=self.tgt_dict,
-            id_to_sample_probabilities=self.id_to_sample_probabilities, lm=self.lm, src_gradnorm_tau=self.idx_to_src_gradnorm['tau']
+            id_to_sample_probabilities=self.id_to_sample_probabilities, lm=self.lm,
         )
         return item
         #if samples[0]["target"] is None: return item
