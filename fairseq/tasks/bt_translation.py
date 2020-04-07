@@ -305,6 +305,7 @@ class BtTranslationTask(MultilingualTranslationTask):
         if not isinstance(model, FairseqMultiModel):
             raise ValueError('SemisupervisedTranslationTask requires a FairseqMultiModel architecture')
         self.bt_model = model.models[_get_dds_bt_key(self.lang_pairs[0])]
+        self.bt_model.eval()
         if self.args.bt_dds:
             # set up data actor finetune optimizer
             bt_params = []
@@ -467,7 +468,7 @@ class BtTranslationTask(MultilingualTranslationTask):
                            if num_words > 0:
                                self.discount_baseline[i] = self.discount_baseline[i] - 0.001 * (self.discount_baseline[i]-reward[:,i].sum().item()/num_words)
                            reward[:,i] = reward[:,i] - self.discount_baseline[i]
-
+                model.models[bt_lang_pair].train()
                 loss, sample_size, logging_output, val_loss_data, _ = criterion(model.models[bt_lang_pair], sample[sample_key][1], data_score=reward, loss_copy=False)
                 loss = loss * self.lambda_denoising
                 self.bt_sample_size += sample_size
@@ -478,6 +479,7 @@ class BtTranslationTask(MultilingualTranslationTask):
                     loss, _, logging_output, val_loss_data, _ = criterion(model.models[bt_lang_pair], sample[bt_lang_pair], data_score=reward, loss_copy=False)
                     loss = loss * self.args.bt_parallel_update
                     loss.backward()
+                model.models[bt_lang_pair].eval()
                    
         return agg_loss, agg_sample_size, agg_logging_output, None, None
 
