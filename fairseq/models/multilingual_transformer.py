@@ -3,6 +3,7 @@
 # This source code is licensed under the MIT license found in the # LICENSE file in the root directory of this source tree.
 
 from collections import OrderedDict
+import copy
 
 from fairseq import utils
 from fairseq.models import (
@@ -153,7 +154,15 @@ class MultilingualTransformerModel(FairseqMultiModel):
                     encoder_embed_tokens = build_embedding(
                         task.dicts[lang], args.encoder_embed_dim, args.encoder_embed_path
                     )
-                lang_encoders[lang] = TransformerEncoder(args, task.dicts[lang], encoder_embed_tokens)
+                if hasattr(args, "reset_bt_dropout") and args.reset_bt_dropout:
+                    copied_args = copy.deepcopy(args)
+                    if lang_pair == args.bt_langpair:
+                        copied_args.dropout = args.bt_dropout
+                        copied_args.attention_dropout = args.bt_attention_dropout
+                        copied_args.relu_dropout = args.bt_relu_dropout
+                    lang_encoders[lang] = TransformerEncoder(copied_args, task.dicts[lang], encoder_embed_tokens)
+                else:
+                    lang_encoders[lang] = TransformerEncoder(args, task.dicts[lang], encoder_embed_tokens)
             return lang_encoders[lang]
 
         def get_decoder(lang, lang_pair=None):
@@ -166,7 +175,15 @@ class MultilingualTransformerModel(FairseqMultiModel):
                     decoder_embed_tokens = build_embedding(
                         task.dicts[lang], args.decoder_embed_dim, args.decoder_embed_path
                     )
-                lang_decoders[lang] = TransformerDecoder(args, task.dicts[lang], decoder_embed_tokens)
+                if hasattr(args, "reset_bt_dropout") and args.reset_bt_dropout:
+                    copied_args = copy.deepcopy(args)
+                    if lang_pair == args.bt_langpair:
+                        copied_args.dropout = args.bt_dropout
+                        copied_args.attention_dropout = args.bt_attention_dropout
+                        copied_args.relu_dropout = args.bt_relu_dropout
+                    lang_decoders[lang] = TransformerDecoder(copied_args, task.dicts[lang], decoder_embed_tokens)
+                else:
+                    lang_decoders[lang] = TransformerDecoder(args, task.dicts[lang], decoder_embed_tokens)
             return lang_decoders[lang]
 
         # shared encoders/decoders (if applicable)
@@ -208,6 +225,10 @@ class MultilingualTransformerModel(FairseqMultiModel):
         for k, _ in state_dict.items():
             #assert k.startswith('models.')
             lang_pair = k.split('.')[1]
+            if lang_pair == "eng-ces":
+                name_toks = k.split('.')
+                name_toks[1] = "eng-slk"
+                state_dict_subset[".".join(name_toks)] = state_dict_subset[k]
             if lang_pair not in self.models:
                 del state_dict_subset[k]
         super().load_state_dict(state_dict_subset, strict=False)

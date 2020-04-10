@@ -132,6 +132,12 @@ class BtTranslationTask(MultilingualTranslationTask):
         parser.add_argument('--grad-clip', default=0., type=float)
         parser.add_argument('--bt-norm-by-word', action='store_true')
 
+        parser.add_argument('--reset-bt-dropout', action='store_true')
+        parser.add_argument('--bt-dropout', default=0.1, type=float)
+        parser.add_argument('--bt-attention-dropout', default=0.1, type=float)
+        parser.add_argument('--bt-relu-dropout', default=0.1, type=float)
+
+
     def __init__(self, args, dicts, training):
         super().__init__(args, dicts, training)
         self.lambda_parallel, self.lambda_parallel_steps = parse_lambda_config(args.lambda_parallel_config)
@@ -295,6 +301,7 @@ class BtTranslationTask(MultilingualTranslationTask):
 
     def build_model(self, args):
         from fairseq import models
+        args.bt_langpair = _get_dds_bt_key(self.lang_pairs[0])
         copied_lang_pairs = [p  for p in self.lang_pairs]
         for lang_pair in copied_lang_pairs:
             src, tgt = lang_pair.split('-')
