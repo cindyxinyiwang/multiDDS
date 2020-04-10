@@ -413,17 +413,25 @@ class BtTranslationTask(MultilingualTranslationTask):
                 # B X T
                 nll_loss = nll_loss_data.sum(dim=1) / sample_size
                 z = torch.ones_like(nll_loss).requires_grad_(True)
+                norm_z = torch.ones_like(nll_loss).requires_grad_(True)
                 pgrad = torch.autograd.grad(nll_loss, params, grad_outputs=z, create_graph=True, retain_graph=True, only_inputs=True)
+                norm_pgrad = torch.autograd.grad(nll_loss, params, grad_outputs=norm_z, create_graph=True, retain_graph=True, only_inputs=True)
                 # calculate jvp loss
                 jvp_loss = 0
+                norm_loss = 0
                 vg_norm, pg_norm = 0, 0
                 for vg, pg in zip(valid_grad, pgrad):
                     jvp_loss += (vg.data*pg).sum()
+                for vg, pg in zip(valid_grad, norm_pgrad):
+                    vg_norm += vg.data.norm(2)**2
+                    pg_norm += pg.norm(2)**2
                     #vg_norm += vg.data.norm(1)
                     #pg_norm += pg.data.norm(1)
+                norm_loss = (vg_norm * pg_norm) ** 0.5
                 with torch.no_grad():
-                    #dev_grad_dotprod = torch.autograd.grad(jvp_loss, z, retain_graph=False)[0]/(vg_norm*pg_norm+1e-10)
                     dev_grad_dotprod = torch.autograd.grad(jvp_loss, z, retain_graph=False, only_inputs=True)[0]
+                    dev_grad_norm = torch.autograd.grad(norm_loss, norm_z, retain_graph=False, only_inputs=True)[0]
+                    dev_grad_dotprod = dev_grad_dotprod/dev_grad_norm
             optimizer.backward(loss)
             agg_loss += loss.detach().item()
             # TODO make summing of the sample sizes configurable
