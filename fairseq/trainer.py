@@ -408,7 +408,7 @@ class Trainer(object):
                     self.extra_data_actor.load_state_dict(state['extra_data_actor'])
                 if 'extra_data_optimizer' in state and state['extra_data_optimizer']:
                     self.extra_data_optimizer.load_state_dict(state['extra_data_optimizer'])
-                if 'bt_data_optimizer' in state and state['bt_data_optimizer'] and hasattr(task, "data_optimizer"):
+                if 'bt_data_optimizer' in state and state['bt_data_optimizer'] and hasattr(self.task, "data_optimizer"):
                     print("loading bt_data_optimizer...")
                     self.task.data_optimizer.load_state_dict(state['bt_data_optimizer'])
 

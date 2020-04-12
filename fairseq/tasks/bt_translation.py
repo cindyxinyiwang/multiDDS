@@ -137,6 +137,7 @@ class BtTranslationTask(MultilingualTranslationTask):
         parser.add_argument('--bt-attention-dropout', default=0.1, type=float)
         parser.add_argument('--bt-relu-dropout', default=0.1, type=float)
 
+        parser.add_argument('--bt-dataset', default=None, type=str)
 
     def __init__(self, args, dicts, training):
         super().__init__(args, dicts, training)
@@ -171,16 +172,16 @@ class BtTranslationTask(MultilingualTranslationTask):
             elif not self.args.raw_text and IndexedDataset.exists(filename):
                 return True
             return False
-        if split == 'train' and self.args.bt_parallel_update > 0:
-            lang_pairs = []
-            copied_lang_pairs = [p  for p in self.lang_pairs]
-            for lang_pair in copied_lang_pairs:
-                src, tgt = lang_pair.split('-')
-                key = '{}-{}'.format(tgt, src)
-                lang_pairs.append(key) 
-                lang_pairs.append(lang_pair) 
-        else:
-            lang_pairs = self.lang_pairs
+        #if split == 'train' and self.args.bt_parallel_update > 0:
+        #    lang_pairs = []
+        #    copied_lang_pairs = [p  for p in self.lang_pairs]
+        #    for lang_pair in copied_lang_pairs:
+        #        src, tgt = lang_pair.split('-')
+        #        key = '{}-{}'.format(tgt, src)
+        #        lang_pairs.append(key) 
+        #        lang_pairs.append(lang_pair) 
+        #else:
+        lang_pairs = self.lang_pairs
 
         # load parallel datasets
         src_datasets, tgt_datasets = {}, {}
@@ -221,45 +222,78 @@ class BtTranslationTask(MultilingualTranslationTask):
         # back translation datasets
         backtranslate_datasets = {}
         if split.startswith("train"):
-            for lang_pair in self.lang_pairs:
+            if self.args.bt_dataset:
+                lang_pair = self.lang_pairs[0]
                 src, tgt = lang_pair.split('-')
-                if not split_exists(split, tgt, None, tgt):
-                    raise FileNotFoundError('Dataset not found: backtranslation {} ({})'.format(split, data_path))
-                filename = os.path.join(data_path, '{}.{}-None.{}'.format(split, tgt, tgt))
-                dataset = data_utils.load_indexed_dataset(filename, self.dicts[tgt])
-                lang_pair_dataset_tgt = LanguagePairDataset(
-                    dataset,
-                    dataset.sizes,
-                    self.dicts[tgt],
+                # bt_dataset: fra-eng
+                bt_src, bt_tgt = self.args.bt_dataset.split('-')
+                filename = os.path.join(data_path, '{}.{}-{}.{}'.format(split, bt_src, bt_tgt, bt_tgt))
+                tgt_dataset = data_utils.load_indexed_dataset(filename, self.dicts[tgt])
+                print("bt tgt_filename={}".format(filename))
+                filename = os.path.join(data_path, '{}.{}-{}.{}'.format(split, bt_src, bt_tgt, bt_src))
+                src_dataset = data_utils.load_indexed_dataset(filename, self.dicts[src])
+                print("bt src_filename={}".format(filename))
+                print("bt langpair={}".format(self.args.bt_dataset))
+                lang_pair_dataset_bt = LanguagePairDataset(
+                    tgt_dataset, tgt_dataset.sizes, self.dicts[tgt],
+                    src_dataset, src_dataset.sizes, self.dicts[src],
                     left_pad_source=self.args.left_pad_source,
                     left_pad_target=self.args.left_pad_target,
+                    max_source_positions=self.args.max_source_positions,
+                    max_target_positions=self.args.max_target_positions,
                 )
-                #lang_pair_dataset = LanguagePairDataset(
-                #    dataset,
-                #    dataset.sizes,
-                #    src_dict=self.dicts[src],
-                #    tgt=dataset,
-                #    tgt_sizes=dataset.sizes,
-                #    tgt_dict=self.dicts[tgt],
-                #    left_pad_source=self.args.left_pad_source,
-                #    left_pad_target=self.args.left_pad_target,
-                #)
                 backtranslate_datasets[lang_pair] = BacktranslationDataset(
-                    tgt_dataset=self.alter_dataset_langtok(
-                        lang_pair_dataset_tgt,
-                        src_eos=self.dicts[tgt].eos(),
-                        src_lang=tgt,
-                        tgt_lang=src,
-                    ),
+                    tgt_dataset=lang_pair_dataset_bt,
                     backtranslation_fn=self.backtranslators[lang_pair],
                     src_dict=self.dicts[src], tgt_dict=self.dicts[tgt],
                     output_collater=language_pair_dataset(lang_pair).collater,
                     noising=self.args.noise_bt_dds,
+                    bt_langpair=self.args.bt_dataset is not None,
                 )
                 print('| backtranslate-{}: {} {} {} examples'.format(
                     tgt, data_path, split, len(backtranslate_datasets[lang_pair]),
                 ))
                 self.backtranslate_datasets[lang_pair] = backtranslate_datasets[lang_pair]
+            else:
+                for lang_pair in self.lang_pairs:
+                    src, tgt = lang_pair.split('-')
+                    if not split_exists(split, tgt, None, tgt):
+                        raise FileNotFoundError('Dataset not found: backtranslation {} ({})'.format(split, data_path))
+                    filename = os.path.join(data_path, '{}.{}-None.{}'.format(split, tgt, tgt))
+                    dataset = data_utils.load_indexed_dataset(filename, self.dicts[tgt])
+                    lang_pair_dataset_tgt = LanguagePairDataset(
+                        dataset,
+                        dataset.sizes,
+                        self.dicts[tgt],
+                        left_pad_source=self.args.left_pad_source,
+                        left_pad_target=self.args.left_pad_target,
+                    )
+                    #lang_pair_dataset = LanguagePairDataset(
+                    #    dataset,
+                    #    dataset.sizes,
+                    #    src_dict=self.dicts[src],
+                    #    tgt=dataset,
+                    #    tgt_sizes=dataset.sizes,
+                    #    tgt_dict=self.dicts[tgt],
+                    #    left_pad_source=self.args.left_pad_source,
+                    #    left_pad_target=self.args.left_pad_target,
+                    #)
+                    backtranslate_datasets[lang_pair] = BacktranslationDataset(
+                        tgt_dataset=self.alter_dataset_langtok(
+                            lang_pair_dataset_tgt,
+                            src_eos=self.dicts[tgt].eos(),
+                            src_lang=tgt,
+                            tgt_lang=src,
+                        ),
+                        backtranslation_fn=self.backtranslators[lang_pair],
+                        src_dict=self.dicts[src], tgt_dict=self.dicts[tgt],
+                        output_collater=language_pair_dataset(lang_pair).collater,
+                        noising=self.args.noise_bt_dds,
+                    )
+                    print('| backtranslate-{}: {} {} {} examples'.format(
+                        tgt, data_path, split, len(backtranslate_datasets[lang_pair]),
+                    ))
+                    self.backtranslate_datasets[lang_pair] = backtranslate_datasets[lang_pair]
 
 
         self.datasets[split] = RoundRobinZipDatasets(
@@ -413,25 +447,25 @@ class BtTranslationTask(MultilingualTranslationTask):
                 # B X T
                 nll_loss = nll_loss_data.sum(dim=1) / sample_size
                 z = torch.ones_like(nll_loss).requires_grad_(True)
-                norm_z = torch.ones_like(nll_loss).requires_grad_(True)
+                #norm_z = torch.ones_like(nll_loss).requires_grad_(True)
                 pgrad = torch.autograd.grad(nll_loss, params, grad_outputs=z, create_graph=True, retain_graph=True, only_inputs=True)
-                norm_pgrad = torch.autograd.grad(nll_loss, params, grad_outputs=norm_z, create_graph=True, retain_graph=True, only_inputs=True)
+                #norm_pgrad = torch.autograd.grad(nll_loss, params, grad_outputs=norm_z, create_graph=True, retain_graph=True, only_inputs=True)
                 # calculate jvp loss
                 jvp_loss = 0
                 norm_loss = 0
                 vg_norm, pg_norm = 0, 0
                 for vg, pg in zip(valid_grad, pgrad):
                     jvp_loss += (vg.data*pg).sum()
-                for vg, pg in zip(valid_grad, norm_pgrad):
-                    vg_norm += vg.data.norm(2)**2
-                    pg_norm += pg.norm(2)**2
-                    #vg_norm += vg.data.norm(1)
-                    #pg_norm += pg.data.norm(1)
-                norm_loss = (vg_norm * pg_norm) ** 0.5
+                #for vg, pg in zip(valid_grad, norm_pgrad):
+                #    vg_norm += vg.data.norm(2)**2
+                #    pg_norm += pg.norm(2)**2
+                #    #vg_norm += vg.data.norm(1)
+                #    #pg_norm += pg.data.norm(1)
+                #norm_loss = (vg_norm * pg_norm) ** 0.5
                 with torch.no_grad():
                     dev_grad_dotprod = torch.autograd.grad(jvp_loss, z, retain_graph=False, only_inputs=True)[0]
-                    dev_grad_norm = torch.autograd.grad(norm_loss, norm_z, retain_graph=False, only_inputs=True)[0]
-                    dev_grad_dotprod = dev_grad_dotprod/dev_grad_norm
+                    #dev_grad_norm = torch.autograd.grad(norm_loss, norm_z, retain_graph=False, only_inputs=True)[0]
+                    #dev_grad_dotprod = dev_grad_dotprod/dev_grad_norm
             optimizer.backward(loss)
             agg_loss += loss.detach().item()
             # TODO make summing of the sample sizes configurable
@@ -491,7 +525,7 @@ class BtTranslationTask(MultilingualTranslationTask):
                 loss.backward()
                 agg_logging_output[bt_lang_pair] = logging_output
                 if self.args.bt_parallel_update > 0:
-                    loss, _, logging_output, val_loss_data, _ = criterion(model.models[bt_lang_pair], sample[bt_lang_pair], data_score=reward, loss_copy=False)
+                    loss, _, logging_output, val_loss_data, _ = criterion(model.models[bt_lang_pair], sample[sample_key][2], data_score=None, loss_copy=False)
                     loss = loss * self.args.bt_parallel_update
                     loss.backward()
                 model.models[bt_lang_pair].eval()

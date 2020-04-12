@@ -10,7 +10,7 @@ from fairseq import utils
 from . import FairseqDataset
 from fairseq.data.noising import UnsupervisedMTNoising 
 
-def backtranslate_samples(samples, collate_fn, generate_fn, cuda=True, noising=None):
+def backtranslate_samples(samples, collate_fn, generate_fn, cuda=True, noising=None, print_idx=None):
     """Backtranslate a list of samples.
 
     Given an input (*samples*) of the form:
@@ -46,10 +46,16 @@ def backtranslate_samples(samples, collate_fn, generate_fn, cuda=True, noising=N
     # {id: id, source: generated backtranslation, target: original tgt}
     #return samples
 
-    ret_samples =  [
-        {'id': id.item(), 'target': id_to_src[id.item()], 'source': hypos[0]['tokens'].cpu()}
-        for id, hypos in zip(collated_samples['id'], generated_sources)
-    ]
+    #ret_samples =  [
+    #    {'id': id.item(), 'target': id_to_src[id.item()], 'source': hypos[0]['tokens'].cpu()}
+    #    for id, hypos in zip(collated_samples['id'], generated_sources)
+    #]
+    ret_samples = []
+    print_samples = []
+    for id, hypos in zip(collated_samples['id'], generated_sources):
+        ret_samples.append({'id': id.item(), 'target': id_to_src[id.item()], 'source': hypos[0]['tokens'].cpu()})
+        if print_idx is not None and id.item() == print_idx:
+            print_samples.append(ret_samples[-1])
     if noising is not None:
         backward_samples = []
         for id, hypos in zip(collated_samples['id'], generated_sources):
@@ -66,7 +72,7 @@ def backtranslate_samples(samples, collate_fn, generate_fn, cuda=True, noising=N
             {'id': id.item(), 'source': id_to_src[id.item()], 'target': hypos[0]['tokens'].cpu()}
             for id, hypos in zip(collated_samples['id'], generated_sources)
         ]
-    return ret_samples, backward_samples
+    return ret_samples, backward_samples, print_samples
 
 
 
@@ -106,9 +112,11 @@ class BacktranslationDataset(FairseqDataset):
         backward_output_collater=None,
         cuda=True,
         noising=False,
+        bt_langpair=False,
         **kwargs
     ):
         self.tgt_dataset = tgt_dataset
+        self.bt_langpair = bt_langpair 
         self.backtranslation_fn = backtranslation_fn
         self.output_collater = output_collater if output_collater is not None \
             else tgt_dataset.collater
@@ -156,29 +164,58 @@ class BacktranslationDataset(FairseqDataset):
         Returns:
             dict: a mini-batch with keys coming from *output_collater*
         """
-        if samples[0].get('is_dummy', False):
-            return samples
-        #return samples
-        samples, backward_samples = backtranslate_samples(
-            samples=samples,
-            collate_fn=self.tgt_dataset.collater,
-            generate_fn=(
-                lambda net_input: self.backtranslation_fn(net_input)
-            ),
-            cuda=self.cuda,
-            noising=self.noising,
-        )
-        print("bt generated src-trg")
-        src_str = self.src_dict.string(samples[0]['source'])
-        tgt_str = self.tgt_dict.string(samples[0]['target'])
-        print(src_str)
-        print(tgt_str)
-        print("update bt src-trg")
-        src_str = self.src_dict.string(backward_samples[0]['source'])
-        tgt_str = self.tgt_dict.string(backward_samples[0]['target'])
-        print(src_str)
-        print(tgt_str)
-        return {0:self.output_collater(samples), 1: self.backward_output_collater(backward_samples)}
+        if self.bt_langpair:
+            if samples[0].get('is_dummy', False):
+                return samples
+            print("gold standard src-trg")
+            gold_standard_samples = samples[:]
+            src_str = self.src_dict.string(gold_standard_samples[0]['source'])
+            tgt_str = self.tgt_dict.string(gold_standard_samples[0]['target'])
+            print_idx = gold_standard_samples[0]['id']
+            print(src_str)
+            print(tgt_str)
+            #return samples
+            samples, backward_samples, print_samples = backtranslate_samples(
+                samples=samples,
+                collate_fn=self.tgt_dataset.collater,
+                generate_fn=(
+                    lambda net_input: self.backtranslation_fn(net_input)
+                ),
+                cuda=self.cuda,
+                noising=self.noising,
+                print_idx=print_idx,
+            )
+            print("bt generated src-trg")
+            src_str = self.src_dict.string(print_samples[0]['source'])
+            tgt_str = self.tgt_dict.string(print_samples[0]['target'])
+            print(src_str)
+            print(tgt_str)
+
+            return {0:self.output_collater(samples), 1: self.backward_output_collater(backward_samples), 2: self.backward_output_collater(gold_standard_samples)}
+        else:
+            if samples[0].get('is_dummy', False):
+                return samples
+            #return samples
+            samples, backward_samples, _ = backtranslate_samples(
+                samples=samples,
+                collate_fn=self.tgt_dataset.collater,
+                generate_fn=(
+                    lambda net_input: self.backtranslation_fn(net_input)
+                ),
+                cuda=self.cuda,
+                noising=self.noising,
+            )
+            print("bt generated src-trg")
+            src_str = self.src_dict.string(samples[0]['source'])
+            tgt_str = self.tgt_dict.string(samples[0]['target'])
+            print(src_str)
+            print(tgt_str)
+            print("update bt src-trg")
+            src_str = self.src_dict.string(backward_samples[0]['source'])
+            tgt_str = self.tgt_dict.string(backward_samples[0]['target'])
+            print(src_str)
+            print(tgt_str)
+            return {0:self.output_collater(samples), 1: self.backward_output_collater(backward_samples)}
 
     def num_tokens(self, index):
         """Just use the tgt dataset num_tokens"""
@@ -196,6 +233,8 @@ class BacktranslationDataset(FairseqDataset):
         sentence, since we do not know the actual length until after
         backtranslation.
         """
+        if self.bt_langpair:
+            return self.tgt_dataset.size(index)
         tgt_size = self.tgt_dataset.size(index)[0]
         return (tgt_size, tgt_size)
 
