@@ -147,6 +147,7 @@ class TranslationTask(FairseqTask):
         parser.add_argument('--src-gradnorm-tau', default=1., type=float)
         parser.add_argument('--lm-path', default=None, type=str)
         parser.add_argument('--lm-dict-path', default=None, type=str)
+        parser.add_argument('--lm-topk', default=0, type=float)
         parser.add_argument('--src-gradnorm-path', default=None, type=str)
 
     def __init__(self, args, src_dict, tgt_dict):
@@ -246,6 +247,7 @@ class TranslationTask(FairseqTask):
             state = checkpoint_utils.load_checkpoint_to_cpu(args.lm_path)
             self.mlm.dictionary = self.dictionary
             self.mlm.dialect_tau = self.args.dialect_tau
+            self.mlm.topk = self.args.lm_topk
             # verify dictionary 
             for i in range(10):
                 print(self.src_dict[i], self.dictionary[i])
