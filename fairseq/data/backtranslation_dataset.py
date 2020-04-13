@@ -206,8 +206,8 @@ class BacktranslationDataset(FairseqDataset):
                 noising=self.noising,
             )
             print("bt generated src-trg")
-            src_str = self.src_dict.string(samples[0]['source'])
-            tgt_str = self.tgt_dict.string(samples[0]['target'])
+            src_str = self.tgt_dict.string(samples[0]['source'])
+            tgt_str = self.src_dict.string(samples[0]['target'])
             print(src_str)
             print(tgt_str)
             print("update bt src-trg")

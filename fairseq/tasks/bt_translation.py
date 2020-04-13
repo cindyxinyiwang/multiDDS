@@ -286,7 +286,7 @@ class BtTranslationTask(MultilingualTranslationTask):
                             tgt_lang=src,
                         ),
                         backtranslation_fn=self.backtranslators[lang_pair],
-                        src_dict=self.dicts[src], tgt_dict=self.dicts[tgt],
+                        src_dict=self.dicts[tgt], tgt_dict=self.dicts[src],
                         output_collater=language_pair_dataset(lang_pair).collater,
                         noising=self.args.noise_bt_dds,
                     )
