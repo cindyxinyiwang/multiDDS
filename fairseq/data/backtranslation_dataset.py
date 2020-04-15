@@ -113,8 +113,12 @@ class BacktranslationDataset(FairseqDataset):
         cuda=True,
         noising=False,
         bt_langpair=False,
+        swa=False,
+        data_optimizer=None,
         **kwargs
     ):
+        self.swa = swa
+        self.data_optimizer = data_optimizer
         self.tgt_dataset = tgt_dataset
         self.bt_langpair = bt_langpair 
         self.backtranslation_fn = backtranslation_fn
@@ -164,6 +168,8 @@ class BacktranslationDataset(FairseqDataset):
         Returns:
             dict: a mini-batch with keys coming from *output_collater*
         """
+        if self.swa:
+            self.data_optimizer.swap_swa_sgd()
         if self.bt_langpair:
             if samples[0].get('is_dummy', False):
                 return samples
@@ -191,6 +197,8 @@ class BacktranslationDataset(FairseqDataset):
             print(src_str)
             print(tgt_str)
 
+            if self.swa:
+                self.data_optimizer.swap_swa_sgd()
             return {0:self.output_collater(samples), 1: self.backward_output_collater(backward_samples), 2: self.backward_output_collater(gold_standard_samples)}
         else:
             if samples[0].get('is_dummy', False):
@@ -215,6 +223,10 @@ class BacktranslationDataset(FairseqDataset):
             tgt_str = self.tgt_dict.string(backward_samples[0]['target'])
             print(src_str)
             print(tgt_str)
+
+            if self.swa:
+                self.data_optimizer.swap_swa_sgd()
+
             return {0:self.output_collater(samples), 1: self.backward_output_collater(backward_samples)}
 
     def num_tokens(self, index):

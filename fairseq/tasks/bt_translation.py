@@ -6,6 +6,7 @@
 from collections import OrderedDict
 import os
 import copy
+import torchcontrib
 
 from fairseq.data import (
     BacktranslationDataset,
@@ -138,6 +139,12 @@ class BtTranslationTask(MultilingualTranslationTask):
         parser.add_argument('--bt-relu-dropout', default=0.1, type=float)
 
         parser.add_argument('--bt-dataset', default=None, type=str)
+
+        parser.add_argument('--swa', action='store_true')
+        parser.add_argument('--swa-start', type=int, default=None)
+        parser.add_argument('--swa-freq', type=int, default=None)
+        parser.add_argument('--swa-lr', type=float, default=None)
+        parser.add_argument('--swa-schedule-gamma', type=float, default=None)
 
     def __init__(self, args, dicts, training):
         super().__init__(args, dicts, training)
@@ -289,6 +296,8 @@ class BtTranslationTask(MultilingualTranslationTask):
                         src_dict=self.dicts[tgt], tgt_dict=self.dicts[src],
                         output_collater=language_pair_dataset(lang_pair).collater,
                         noising=self.args.noise_bt_dds,
+                        swa=self.args.swa,
+                        data_optimizer=self.data_optimizer,
                     )
                     print('| backtranslate-{}: {} {} {} examples'.format(
                         tgt, data_path, split, len(backtranslate_datasets[lang_pair]),
@@ -357,9 +366,14 @@ class BtTranslationTask(MultilingualTranslationTask):
             if self.args.bt_optimizer == "SGD":
                 self.data_optimizer = torch.optim.SGD(bt_params, lr=self.args.data_actor_lr[0], momentum=self.args.bt_optimizer_momentum, nesterov=self.args.bt_optimizer_nesterov)
             elif self.args.bt_optimizer == "ASGD":
-                self.data_optimizer = torch.optim.ASGD(bt_params, lr=self.args.data_actor_lr[0])
+                self.data_optimizer = torch.optim.ASGD(bt_params, lr=self.args.data_actor_lr[0], t0=0)
             elif self.args.bt_optimizer == "Adam":
                 self.data_optimizer = torch.optim.Adam(bt_params, lr=self.args.data_actor_lr[0])
+        if self.args.swa:
+            self.data_optimizer = torchcontrib.optim.SWA(self.data_optimizer, swa_start=self.args.swa_start, swa_freq=self.args.swa_freq, swa_lr=self.args.swa_lr)
+        if self.args.swa_schedule_gamma is not None:
+            #self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.data_optimizer, step_size=1, gamma=((self.args.swa_schedule_min_lr/self.args.swa_lr)**(1./self.args.swa_freq)) )
+            self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.data_optimizer, step_size=1, gamma=self.args.swa_schedule_gamma)
         self.src_dict = self.dicts[self.lang_pairs[0].split("-")[0]]
         # create SequenceGenerator for each model that has backtranslation dependency on it
         self.sequence_generators = {}
@@ -562,6 +576,8 @@ class BtTranslationTask(MultilingualTranslationTask):
                 print("actor grad_norm:", actor_grad_norm)
             self.data_optimizer.step()
             self.data_optimizer.zero_grad()
+            if self.args.swa_schedule_gamma is not None:
+                self.lr_scheduler.step()
             self.bt_sample_size = 0
 
     def aggregate_logging_outputs(self, logging_outputs, criterion):
