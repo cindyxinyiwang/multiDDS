@@ -47,6 +47,9 @@ class RobertaModel(FairseqLanguageModel):
 
         self.classification_heads = nn.ModuleDict()
 
+        #self.reset_param_names = ["decoder.sentence_encoder.embed_tokens.weight", "decoder.sentence_encoder.embed_positions.weight", "decoder.lm_head.weight", "decoder.lm_head.bias"]
+        self.reset_param_names = ["decoder.sentence_encoder.embed_tokens.weight", "decoder.lm_head.weight", "decoder.lm_head.bias"]
+
     @staticmethod
     def add_args(parser):
         """Add model-specific arguments to the parser."""
@@ -90,7 +93,32 @@ class RobertaModel(FairseqLanguageModel):
             args.max_positions = args.tokens_per_sample
 
         encoder = RobertaEncoder(args, task.source_dictionary)
-        return cls(args, encoder)
+        model = cls(args, encoder)
+
+        for param in model.parameters(): param.requires_grad = False
+        #self.reset_param_names = ["decoder.sentence_encoder.embed_tokens.weight", "decoder.lm_head.weight", "decoder.lm_head.bias"]
+        model.decoder.sentence_encoder.embed_tokens.weight.requires_grad = True
+        #model.decoder.sentence_encoder.embed_positions.weight.requires_grad = True
+        model.decoder.lm_head.weight.requires_grad = True
+        model.decoder.lm_head.bias.requires_grad = True
+
+        return model
+
+    @classmethod
+    def build_model_with_dict(cls, args, source_dictionary):
+        """Build a new model instance."""
+
+        # make sure all arguments are present
+        base_architecture(args)
+
+        if not hasattr(args, 'max_positions'):
+            args.max_positions = args.tokens_per_sample
+
+        encoder = RobertaEncoder(args, source_dictionary)
+        model = cls(args, encoder)
+
+        return model
+
 
     def forward(self, src_tokens, features_only=False, return_all_hiddens=False, classification_head_name=None, **kwargs):
         if classification_head_name is not None:
@@ -186,6 +214,17 @@ class RobertaModel(FairseqLanguageModel):
                     print('Overwriting', prefix + 'classification_heads.' + k)
                     state_dict[prefix + 'classification_heads.' + k] = v
 
+    def load_state_dict(self, state_dict, strict=True):
+        """Copies parameters and buffers from *state_dict* into this module and
+        its descendants.
+
+        Overrides the method in :class:`nn.Module`. Compared with that method
+        this additionally "upgrades" *state_dicts* from old checkpoints.
+        """
+        self.upgrade_state_dict(state_dict)
+        for k in self.reset_param_names:
+            if k in state_dict: del state_dict[k]
+        return super().load_state_dict(state_dict, strict=False)
 
 class RobertaLMHead(nn.Module):
     """Head for masked language modeling."""
