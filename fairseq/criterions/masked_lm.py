@@ -22,7 +22,7 @@ class MaskedLmLoss(FairseqCriterion):
     def __init__(self, args, task):
         super().__init__(args, task)
 
-    def forward(self, model, sample, reduce=True):
+    def forward(self, model, sample, reduce=True, data_score=None, loss_copy=False):
         """Compute the loss for the given sample.
         Returns a tuple with three elements:
         1) the loss
@@ -51,7 +51,7 @@ class MaskedLmLoss(FairseqCriterion):
             'nsentences': sample['nsentences'],
             'sample_size': sample_size,
         }
-        return loss, sample_size, logging_output
+        return loss, sample_size, logging_output, None, None
 
     @staticmethod
     def aggregate_logging_outputs(logging_outputs):

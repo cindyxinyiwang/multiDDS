@@ -11,6 +11,7 @@ import scipy
 import copy
 from fairseq.data.legacy.masked_lm_dataset import MaskedLMDataset
 from fairseq.data.legacy.masked_lm_dictionary import MaskedLMDictionary
+from fairseq.data import Dictionary
 
 from fairseq import options, utils, checkpoint_utils
 from fairseq.data import (
@@ -147,7 +148,7 @@ class TranslationTask(FairseqTask):
         parser.add_argument('--src-gradnorm-tau', default=1., type=float)
         parser.add_argument('--lm-path', default=None, type=str)
         parser.add_argument('--lm-dict-path', default=None, type=str)
-        parser.add_argument('--lm-topk', default=0, type=float)
+        parser.add_argument('--lm-topk', default=0, type=int)
         parser.add_argument('--src-gradnorm-path', default=None, type=str)
 
     def __init__(self, args, src_dict, tgt_dict):
@@ -166,6 +167,7 @@ class TranslationTask(FairseqTask):
                             id = int(id / 2)
                             assert id not in self.idx_to_src_gradnorm
                             self.idx_to_src_gradnorm[id] = scipy.special.softmax([float(t)*args.src_gradnorm_tau for t in toks[1:]]).tolist()
+        elif args.src_gradnorm_path is not None:
         else:
             self.idx_to_src_gradnorm = None
 
@@ -219,41 +221,82 @@ class TranslationTask(FairseqTask):
 
         # build and load LM
         if args.lm_path is not None:
-            self.dictionary = MaskedLMDictionary.load(args.lm_dict_path)
-            lm_args = copy.deepcopy(args)
-            lm_args.arch = "xlm_base"
+            #self.dictionary = MaskedLMDictionary.load(args.lm_dict_path)
+            #lm_args = copy.deepcopy(args)
+            #lm_args.arch = "xlm_base"
 
-            lm_args.max_tokens = 2048
-            lm_args.tokens_per_sample = 256
-            lm_args.num_segment = 5
+            #lm_args.max_tokens = 2048
+            #lm_args.tokens_per_sample = 256
+            #lm_args.num_segment = 5
            
-            lm_args.encoder_embed_dim = 256
-            lm_args.encoder_ffn_embed_dim = 512
-            lm_args.encoder_layers = 6
-            lm_args.encoder_attention_heads = 4
-            lm_args.bias_kv = False
-            lm_args.zero_attn = False
-            lm_args.encoder_embed_dim = 256
-            lm_args.share_encoder_input_output_embed = True
+            #lm_args.encoder_embed_dim = 256
+            #lm_args.encoder_ffn_embed_dim = 512
+            #lm_args.encoder_layers = 6
+            #lm_args.encoder_attention_heads = 4
+            #lm_args.bias_kv = False
+            #lm_args.zero_attn = False
+            #lm_args.encoder_embed_dim = 256
+            #lm_args.share_encoder_input_output_embed = True
+            #lm_args.encoder_learned_pos = True
+            #lm_args.no_token_positional_embeddings = False
+            #lm_args.activation_fn = 'gelu'
+            #lm_args.encoder_normalize_before = False
+            #lm_args.pooler_activation_fn = 'tanh'
+            #lm_args.apply_bert_init = True
+ 
+            #self.mlm = models.build_model(lm_args, self)
+
+            #state = checkpoint_utils.load_checkpoint_to_cpu(args.lm_path)
+            #self.mlm.dictionary = self.dictionary
+            #self.mlm.dialect_tau = self.args.dialect_tau
+            #self.mlm.topk = self.args.lm_topk
+            ## verify dictionary 
+            #for i in range(10):
+            #    print(self.src_dict[i], self.dictionary[i])
+            ## load model parameters
+            #try:
+            #    self.mlm.load_state_dict(state['model'], strict=True)
+            #except Exception:
+            #    raise Exception(
+            #        'Cannot load model parameters from checkpoint {}; '
+            #        'please ensure that the architectures match.'.format(args.lm_path)
+            #    )
+            #if self.cuda:
+            #    print("move lm to cuda") 
+            #    self.mlm = self.mlm.cuda()
+            #self.mlm.eval()
+
+
+            lm_args = copy.deepcopy(args)
+            lm_args.arch = "roberta_base"
+            lm_args.sample_break_mode = "complete"
+            lm_args.tokens_per_sample = 512
+
+            lm_args.encoder_embed_dim = 768
+            lm_args.encoder_ffn_embed_dim = 3072
+            lm_args.encoder_layers = 12
+            lm_args.encoder_attention_heads = 12
             lm_args.encoder_learned_pos = True
             lm_args.no_token_positional_embeddings = False
             lm_args.activation_fn = 'gelu'
-            lm_args.encoder_normalize_before = False
             lm_args.pooler_activation_fn = 'tanh'
-            lm_args.apply_bert_init = True
  
-            self.mlm = models.build_model(lm_args, self)
+            self.dictionary = Dictionary.load(args.lm_dict_path)
+            mask_idx = self.dictionary.add_symbol('<mask>')
+            from fairseq.models.roberta import RobertaModel
+            self.mlm = RobertaModel.build_model_with_dict(lm_args, self.dictionary)
 
             state = checkpoint_utils.load_checkpoint_to_cpu(args.lm_path)
-            self.mlm.dictionary = self.dictionary
-            self.mlm.dialect_tau = self.args.dialect_tau
-            self.mlm.topk = self.args.lm_topk
-            # verify dictionary 
+            ## verify dictionary 
             for i in range(10):
                 print(self.src_dict[i], self.dictionary[i])
+
             # load model parameters
             try:
                 self.mlm.load_state_dict(state['model'], strict=True)
+                #from fairseq.models.roberta import RobertaModel
+                #self.mlm = RobertaModel.from_pretrained(args.lm_path, checkpoint_file="checkpoint_best.pt")
+
             except Exception:
                 raise Exception(
                     'Cannot load model parameters from checkpoint {}; '
@@ -263,6 +306,11 @@ class TranslationTask(FairseqTask):
                 print("move lm to cuda") 
                 self.mlm = self.mlm.cuda()
             self.mlm.eval()
+
+            self.mlm.dictionary = self.dictionary
+            self.mlm.mask_id = mask_idx
+            self.mlm.dialect_tau = self.args.dialect_tau
+            self.mlm.topk = self.args.lm_topk
         else:
             self.mlm = None
 
