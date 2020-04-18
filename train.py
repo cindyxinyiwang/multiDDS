@@ -13,6 +13,7 @@ import random
 
 import numpy as np
 import torch
+import copy
 
 from fairseq import bleu
 from fairseq import checkpoint_utils, distributed_utils, options, progress_bar, tasks, utils
@@ -20,7 +21,6 @@ from fairseq.data import iterators
 from fairseq.trainer import Trainer
 from fairseq.meters import AverageMeter, StopwatchMeter
 
-import copy
 
 def main(args, init_distributed=False):
     utils.import_user_module(args)
@@ -83,10 +83,11 @@ def main(args, init_distributed=False):
     train_meter.start()
     valid_subsets = args.valid_subset.split(',')
     if args.eval_bleu:
-        eval_args = copy.deepcopy(args)
-        eval_args.sampling = False
-        eval_args.sampling_topk = -1
-        generator = task.build_generator(eval_args)
+        gen_args = copy.deepcopy(args)
+        gen_args.sample = False
+        gen_args.beam = 5
+        gen_args.batch_size = 32
+        generator = task.build_generator(gen_args)
         args.maximize_best_checkpoint_metric = True
     else:
         generator = None
@@ -279,7 +280,7 @@ def validate(args, trainer, task, epoch_itr, subsets, generator=None):
         extra_meters = collections.defaultdict(lambda: AverageMeter())
         if args.eval_bleu:
             for k, v in bleus.items():
-                extra_meters[k + ":bleu"].update(v)
+                extra_meters[str(k) + ":bleu"].update(v)
 
         for sample in progress:
             log_output = trainer.valid_step(sample)
@@ -316,47 +317,159 @@ def validate_translation(args, trainer, task, epoch_itr, generator):
     src_dict = task.source_dictionary
     tgt_dict = task.target_dictionary
     models = [trainer.get_model()]
-    bleu_dict = {key: None for key in task.eval_lang_pairs}
+    if hasattr(task, 'eval_lang_pairs'):
+        bleu_dict = {key: None for key in task.eval_lang_pairs}
 
-    # Generate and compute BLEU score
-    if args.sacrebleu:
-        scorer_dict = {key: bleu.SacrebleuScorer() for key in task.eval_lang_pairs}
+        # Generate and compute BLEU score
+        if args.sacrebleu:
+            scorer_dict = {key: bleu.SacrebleuScorer() for key in task.eval_lang_pairs}
+        else:
+            scorer_dict = {key: bleu.Scorer(tgt_dict.pad(), tgt_dict.eos(), tgt_dict.unk()) for key in task.eval_lang_pairs}
+
+        itr = task.get_batch_iterator(
+            dataset=task.dataset('valid'),
+            max_tokens=args.max_tokens_valid,
+            max_sentences=args.max_sentences_valid,
+            max_positions=utils.resolve_max_positions(
+                task.max_positions(),
+                trainer.get_model().max_positions(),
+            ),
+            ignore_invalid_inputs=args.skip_invalid_size_inputs_valid_test,
+            required_batch_size_multiple=args.required_batch_size_multiple,
+            seed=args.seed,
+            num_shards=args.distributed_world_size,
+            shard_id=args.distributed_rank,
+            num_workers=args.num_workers,
+            noskip=True,
+        )[0].next_epoch_itr(shuffle=False)
+        progress = progress_bar.build_progress_bar(
+            args, itr, epoch_itr.epoch,
+            prefix='translate subset',
+            no_progress_bar='simple'
+        )
+
+        num_sentences = 0
+        has_target = True
+        #with progress_bar.build_progress_bar(args, itr) as t:
+        for samples in progress:
+            if torch.cuda.is_available() and not args.cpu:
+                samples = utils.move_to_cuda(samples)
+            #if 'net_input' not in samples:
+            #    continue
+
+            prefix_tokens = None
+            for key, sample in samples.items():
+                hypos = task.inference_step(generator, models, sample, prefix_tokens)
+                num_generated_tokens = sum(len(h[0]['tokens']) for h in hypos)
+
+                for i, sample_id in enumerate(sample['id'].tolist()):
+                    has_target = sample['target'] is not None
+
+                    target_tokens = None
+                    if has_target:
+                        target_tokens = utils.strip_pad(sample['target'][i, :], tgt_dict.pad()).int().cpu()
+                    # Remove padding
+                    if args.sde:
+                        src_tokens = target_tokens
+                    else:
+                        src_tokens = utils.strip_pad(sample['net_input']['src_tokens'][i, :], tgt_dict.pad())
+
+                    # Either retrieve the original sentences or regenerate them from tokens.
+                    #if src_dict is not None:
+                    #    src_str = src_dict.string(src_tokens, args.remove_bpe)
+                    #else:
+                    #    src_str = ""
+                    if has_target:
+                        target_str = tgt_dict.string(target_tokens, args.remove_bpe, escape_unk=True)
+
+                    #if not args.quiet:
+                    #    if src_dict is not None:
+                    #        print('S-{}\t{}'.format(sample_id, src_str))
+                    #    if has_target:
+                    #        print('T-{}\t{}'.format(sample_id, target_str))
+
+                    # Process top predictions
+                    for j, hypo in enumerate(hypos[i][:args.nbest]):
+                        hypo_tokens, hypo_str, alignment = utils.post_process_prediction(
+                            hypo_tokens=hypo['tokens'].int().cpu(),
+                            src_str="",
+                            alignment=hypo['alignment'].int().cpu() if hypo['alignment'] is not None else None,
+                            align_dict=None,
+                            tgt_dict=tgt_dict,
+                            remove_bpe=args.remove_bpe,
+                        )
+
+                        #if not args.quiet:
+                        #    print('H-{}\t{}\t{}'.format(sample_id, hypo['score'], hypo_str))
+                        #    print('P-{}\t{}'.format(
+                        #        sample_id,
+                        #        ' '.join(map(
+                        #            lambda x: '{:.4f}'.format(x),
+                        #            hypo['positional_scores'].tolist(),
+                        #        ))
+                        #    ))
+
+                        #    if args.print_alignment:
+                        #        print('A-{}\t{}'.format(
+                        #            sample_id,
+                        #            ' '.join(map(lambda x: str(utils.item(x)), alignment))
+                        #        ))
+                        #print(has_target, j, hypo_str)
+                        # Score only the top hypothesis
+                        if has_target and j == 0:
+                            if args.remove_bpe is not None:
+                                # Convert back to tokens for evaluation with unk replacement and/or without BPE
+                                target_tokens = tgt_dict.encode_line(target_str, add_if_not_exist=True)
+                            if hasattr(scorer_dict[key], 'add_string'):
+                                scorer_dict[key].add_string(target_str, hypo_str)
+                            else:
+                                scorer_dict[key].add(target_tokens, hypo_tokens)
+
+                num_sentences += sample['nsentences']
+        print("|valid tranlsated {} sentences".format(num_sentences))
+        for key, scorer in scorer_dict.items():
+            bleu_dict[key] = scorer.score()
     else:
-        scorer_dict = {key: bleu.Scorer(tgt_dict.pad(), tgt_dict.eos(), tgt_dict.unk()) for key in task.eval_lang_pairs}
+        bleu_dict = {0: None}
 
-    itr = task.get_batch_iterator(
-        dataset=task.dataset('valid'),
-        max_tokens=args.max_tokens_valid,
-        max_sentences=args.max_sentences_valid,
-        max_positions=utils.resolve_max_positions(
-            task.max_positions(),
-            trainer.get_model().max_positions(),
-        ),
-        ignore_invalid_inputs=args.skip_invalid_size_inputs_valid_test,
-        required_batch_size_multiple=args.required_batch_size_multiple,
-        seed=args.seed,
-        num_shards=args.distributed_world_size,
-        shard_id=args.distributed_rank,
-        num_workers=args.num_workers,
-        noskip=True,
-    )[0].next_epoch_itr(shuffle=False)
-    progress = progress_bar.build_progress_bar(
-        args, itr, epoch_itr.epoch,
-        prefix='translate subset',
-        no_progress_bar='simple'
-    )
+        # Generate and compute BLEU score
+        if args.sacrebleu:
+            scorer_dict = {0: bleu.SacrebleuScorer()}
+        else:
+            scorer_dict = {0: bleu.Scorer(tgt_dict.pad(), tgt_dict.eos(), tgt_dict.unk())}
 
-    num_sentences = 0
-    has_target = True
-    #with progress_bar.build_progress_bar(args, itr) as t:
-    for samples in progress:
-        if torch.cuda.is_available() and not args.cpu:
-            samples = utils.move_to_cuda(samples)
-        #if 'net_input' not in samples:
-        #    continue
+        itr = task.get_batch_iterator(
+            dataset=task.dataset('valid'),
+            max_tokens=args.max_tokens_valid,
+            max_sentences=args.max_sentences_valid,
+            max_positions=utils.resolve_max_positions(
+                task.max_positions(),
+                trainer.get_model().max_positions(),
+            ),
+            ignore_invalid_inputs=args.skip_invalid_size_inputs_valid_test,
+            required_batch_size_multiple=args.required_batch_size_multiple,
+            seed=args.seed,
+            num_shards=args.distributed_world_size,
+            shard_id=args.distributed_rank,
+            num_workers=args.num_workers,
+            noskip=True,
+        )[0].next_epoch_itr(shuffle=False)
+        progress = progress_bar.build_progress_bar(
+            args, itr, epoch_itr.epoch,
+            prefix='translate subset',
+            no_progress_bar='simple'
+        )
 
-        prefix_tokens = None
-        for key, sample in samples.items():
+        num_sentences = 0
+        has_target = True
+        #with progress_bar.build_progress_bar(args, itr) as t:
+        for samples in progress:
+            if torch.cuda.is_available() and not args.cpu:
+                samples = utils.move_to_cuda(samples)
+            #if 'net_input' not in samples:
+            #    continue
+            prefix_tokens = None
+            sample = samples
             hypos = task.inference_step(generator, models, sample, prefix_tokens)
             num_generated_tokens = sum(len(h[0]['tokens']) for h in hypos)
 
@@ -418,14 +531,16 @@ def validate_translation(args, trainer, task, epoch_itr, generator):
                         if args.remove_bpe is not None:
                             # Convert back to tokens for evaluation with unk replacement and/or without BPE
                             target_tokens = tgt_dict.encode_line(target_str, add_if_not_exist=True)
-                        if hasattr(scorer_dict[key], 'add_string'):
-                            scorer_dict[key].add_string(target_str, hypo_str)
+                        if hasattr(scorer_dict[0], 'add_string'):
+                            scorer_dict[0].add_string(target_str, hypo_str)
                         else:
-                            scorer_dict[key].add(target_tokens, hypo_tokens)
+                            scorer_dict[0].add(target_tokens, hypo_tokens)
 
             num_sentences += sample['nsentences']
-    for key, scorer in scorer_dict.items():
-        bleu_dict[key] = scorer.score()
+        print("|valid tranlsated {} sentences".format(num_sentences))
+        for key, scorer in scorer_dict.items():
+            bleu_dict[key] = scorer.score()
+
     return bleu_dict
 
 def get_valid_stats(trainer, args, extra_meters=None):
