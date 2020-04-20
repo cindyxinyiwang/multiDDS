@@ -84,7 +84,8 @@ def main(args, init_distributed=False):
     valid_subsets = args.valid_subset.split(',')
     if args.eval_bleu:
         gen_args = copy.deepcopy(args)
-        gen_args.sample = False
+        gen_args.sampling = False
+        gen_args.sampling_topk = -1
         gen_args.beam = 5
         gen_args.batch_size = 32
         generator = task.build_generator(gen_args)
