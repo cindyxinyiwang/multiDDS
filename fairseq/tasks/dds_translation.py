@@ -165,6 +165,8 @@ class ddsTranslationTask(FairseqTask):
                                  'use fixed weight during training if set to floating point number. '
                                  'use piecewise linear function over number of updates to schedule the '
                                  'weight with the format: w0:step0,w1:step1,...')
+        parser.add_argument('--lambda-gold-config', default="1.0", type=str, metavar='CONFIG')
+        parser.add_argument('--lambda-reward-config', default="1.0", type=str, metavar='CONFIG')
 
     def __init__(self, args, src_dict, tgt_dict):
         super().__init__(args)
@@ -172,6 +174,8 @@ class ddsTranslationTask(FairseqTask):
         self.tgt_dict = tgt_dict
         self.num_updates = 0
         self.lambda_dds, self.lambda_dds_steps = parse_lambda_config(args.lambda_dds_config)
+        self.lambda_gold, self.lambda_gold_steps = parse_lambda_config(args.lambda_gold_config)
+        self.lambda_reward, self.lambda_reward_steps = parse_lambda_config(args.lambda_reward_config)
         self.cuda = torch.cuda.is_available() and not args.cpu
 
     @classmethod
@@ -377,7 +381,6 @@ class ddsTranslationTask(FairseqTask):
             
             dds_loss, dds_sample_size, logging_output, loss_data, _ = criterion(model, sample[1], data_score=None, loss_copy=True)
             # B X T
-            #nll_loss = nll_loss_data.sum(dim=1) / sample_size
             nll_loss = loss_data / dds_sample_size
             z = torch.ones_like(nll_loss).requires_grad_(True)
             #norm_z = torch.ones_like(nll_loss).requires_grad_(True)
@@ -396,12 +399,16 @@ class ddsTranslationTask(FairseqTask):
             #    #pg_norm += pg.data.norm(1)
             #norm_loss = (vg_norm * pg_norm) ** 0.5
             with torch.no_grad():
-                dev_grad_dotprod = torch.autograd.grad(jvp_loss, z, retain_graph=False, only_inputs=True)[0]
-            dds_loss, dds_sample_size, logging_output, loss_data, _ = criterion(model, sample[1], data_score=dev_grad_dotprod, loss_copy=False)
-            
+                dev_grad_dotprod = torch.autograd.grad(jvp_loss, z, retain_graph=False, only_inputs=True)[0] * self.lambda_reward
+            #dds_loss, dds_sample_size, logging_output, loss_data, _ = criterion(model, sample[1], data_score=dev_grad_dotprod, loss_copy=False)
+            target = sample[1]['target']
+            print(dev_grad_dotprod)
+            non_pad_mask = target.ne(self.tgt_dict.pad())
+            dds_loss = (loss_data[non_pad_mask] * dev_grad_dotprod[non_pad_mask]).sum()
             # gold loss
             gold_loss, sample_size, logging_output, loss_data, dev_grad_dotprod = criterion(model, sample[2], loss_copy=True)
-            loss = dds_loss * self.lambda_dds + gold_loss * (1. - self.lambda_dds)
+            #loss = dds_loss * self.lambda_dds + gold_loss * (1. - self.lambda_dds)
+            loss = dds_loss * self.lambda_dds + gold_loss * self.lambda_gold
         else:
             # gold standard loss
             loss, sample_size, logging_output, loss_data, dev_grad_dotprod = criterion(model, sample[2], data_score=data_score, loss_copy=((data_score is not None) or loss_copy))
@@ -428,4 +435,9 @@ class ddsTranslationTask(FairseqTask):
 
         if self.lambda_dds_steps is not None:
             self.lambda_dds = lambda_step_func(self.lambda_dds_steps, num_updates)
+        if self.lambda_gold_steps is not None:
+            self.lambda_gold = lambda_step_func(self.lambda_gold_steps, num_updates)
+        if self.lambda_reward_steps is not None:
+            self.lambda_reward = lambda_step_func(self.lambda_reward_steps, num_updates)
         self.num_updates = num_updates
+
