@@ -369,11 +369,13 @@ class BtTranslationTask(MultilingualTranslationTask):
                 self.data_optimizer = torch.optim.ASGD(bt_params, lr=self.args.data_actor_lr[0], t0=0)
             elif self.args.bt_optimizer == "Adam":
                 self.data_optimizer = torch.optim.Adam(bt_params, lr=self.args.data_actor_lr[0])
-        if self.args.swa:
-            self.data_optimizer = torchcontrib.optim.SWA(self.data_optimizer, swa_start=self.args.swa_start, swa_freq=self.args.swa_freq, swa_lr=self.args.swa_lr)
-        if self.args.swa_schedule_gamma is not None:
-            #self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.data_optimizer, step_size=1, gamma=((self.args.swa_schedule_min_lr/self.args.swa_lr)**(1./self.args.swa_freq)) )
-            self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.data_optimizer, step_size=1, gamma=self.args.swa_schedule_gamma)
+            if self.args.swa:
+                self.data_optimizer = torchcontrib.optim.SWA(self.data_optimizer, swa_start=self.args.swa_start, swa_freq=self.args.swa_freq, swa_lr=self.args.swa_lr)
+            if self.args.swa_schedule_gamma is not None:
+                #self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.data_optimizer, step_size=1, gamma=((self.args.swa_schedule_min_lr/self.args.swa_lr)**(1./self.args.swa_freq)) )
+                self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.data_optimizer, step_size=1, gamma=self.args.swa_schedule_gamma)
+        else:
+            self.data_optimizer = None
         self.src_dict = self.dicts[self.lang_pairs[0].split("-")[0]]
         # create SequenceGenerator for each model that has backtranslation dependency on it
         self.sequence_generators = {}

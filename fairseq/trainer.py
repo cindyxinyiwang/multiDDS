@@ -331,7 +331,7 @@ class Trainer(object):
                 else:
                     data_actor_state = self.data_actor.state_dict()
                     data_optimizer_state = self.data_optimizer.state_dict()
-            if hasattr(self.task, 'data_optimizer'):
+            if hasattr(self.task, 'data_optimizer') and self.task.data_optimizer is not None:
                 bt_data_optimizer_state = self.task.data_optimizer.state_dict() 
             else:
                 bt_data_optimizer_state = None
