@@ -6,7 +6,8 @@ Implementation of the paper
 >Xinyi Wang, Yulia Tsvetkov, Graham Neubig
 
 ### Data:
-The preprocessed and binarized data for fairseq can be downloaded >[here](https://drive.google.com/file/d/1xNlfgLK55SbNocQh7YpDcFUYymfVNEii/view?usp=sharing)
+The preprocessed and binarized data for fairseq can be downloaded [here](https://drive.google.com/file/d/1xNlfgLK55SbNocQh7YpDcFUYymfVNEii/view?usp=sharing)
+
 To process data from scrach, see the script
 ```
 util_scripts/prepare_multilingual_data.sh
@@ -16,6 +17,7 @@ util_scripts/prepare_multilingual_data.sh
 The training scripts for many-to-one translation of the related language group (Related M2O) is under the directory ```job_scripts/related_ted8_m2o/```.
 
 Our methods:
+
 MultiDDS-S: 
 ```bash
 job_scripts/related_ted8_m2o/multidds_s.sh 
@@ -26,6 +28,7 @@ job_scripts/related_ted8_m2o/multidds.sh
 ``` 
 
 Baselines:
+
 Proportional: 
 ```bash 
 job_scripts/related_ted8_m2o/proportional.sh 
