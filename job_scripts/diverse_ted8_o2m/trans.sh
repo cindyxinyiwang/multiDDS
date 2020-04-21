@@ -5,14 +5,7 @@
 #SBATCH --time=0
 #SBATCH --mem=15GB
 
-##SBATCH --job-name=fw_slk-eng
-##SBATCH --output=checkpoints/train_logs/fw_slk-eng_train-%j.out
-##SBATCH --output=checkpoints/train_logs/fw_slk-eng_train-%j.err
-
-#export PYTHONPATH="$(pwd)"
-#export CUDA_VISIBLE_DEVICES="2"
-
-OUTDIR=checkpoints/diverse_ted8_o2m/uniform_temp_t5/
+OUTDIR=$1
 
 python generate.py data-bin/ted_8_diverse/ \
           --task multilingual_translation \
@@ -110,4 +103,3 @@ python generate.py data-bin/ted_8_diverse/ \
           --source-lang eng --target-lang kor \
           --beam 5   > "$OUTDIR"/test_engkor.log
 
-#grep ^H checkpoints/tag_fw_slk-eng/fwtrans_test.log | cut -f3 > checkpoints/tag_fw_slk-eng/fwtrans_test.decode

@@ -7,7 +7,7 @@
 
 OUTDIR=$1
 
-python generate.py data-bin/ted_8_diverse/ \
+python generate.py data-bin/ted_8_related/ \
           --task multilingual_translation \
           --gen-subset test \
           --path "$OUTDIR"/checkpoint_best.pt \
@@ -15,11 +15,11 @@ python generate.py data-bin/ted_8_diverse/ \
           --lenpen 1.0 \
           --remove-bpe sentencepiece \
 	  --sacrebleu \
-          --lang-pairs "bos-eng,mar-eng,hin-eng,mkd-eng,ell-eng,bul-eng,fra-eng,kor-eng" \
-          --source-lang bos --target-lang eng \
-          --beam 5   > "$OUTDIR"/test_boseng.log
+    	  --lang-pairs "eng-aze,eng-tur,eng-bel,eng-rus,eng-glg,eng-por,eng-slk,eng-ces" \
+          --source-lang eng --target-lang aze \
+          --beam 5   > "$OUTDIR"/test_engaze.log
 
-python generate.py data-bin/ted_8_diverse/ \
+python generate.py data-bin/ted_8_related/ \
           --task multilingual_translation \
           --gen-subset test \
           --path "$OUTDIR"/checkpoint_best.pt \
@@ -27,11 +27,11 @@ python generate.py data-bin/ted_8_diverse/ \
           --lenpen 1.0 \
           --remove-bpe sentencepiece \
 	  --sacrebleu \
-          --lang-pairs "bos-eng,mar-eng,hin-eng,mkd-eng,ell-eng,bul-eng,fra-eng,kor-eng" \
-          --source-lang mar --target-lang eng \
-          --beam 5   > "$OUTDIR"/test_mareng.log
+    	  --lang-pairs "eng-aze,eng-tur,eng-bel,eng-rus,eng-glg,eng-por,eng-slk,eng-ces" \
+          --source-lang eng --target-lang tur \
+          --beam 5   > "$OUTDIR"/test_engtur.log
 
-python generate.py data-bin/ted_8_diverse/ \
+python generate.py data-bin/ted_8_related/ \
           --task multilingual_translation \
           --gen-subset test \
           --path "$OUTDIR"/checkpoint_best.pt \
@@ -39,11 +39,11 @@ python generate.py data-bin/ted_8_diverse/ \
           --lenpen 1.0 \
           --remove-bpe sentencepiece \
 	  --sacrebleu \
-          --lang-pairs "bos-eng,mar-eng,hin-eng,mkd-eng,ell-eng,bul-eng,fra-eng,kor-eng" \
-          --source-lang hin --target-lang eng \
-          --beam 5   > "$OUTDIR"/test_hineng.log
+    	  --lang-pairs "eng-aze,eng-tur,eng-bel,eng-rus,eng-glg,eng-por,eng-slk,eng-ces" \
+          --source-lang eng --target-lang bel \
+          --beam 5   > "$OUTDIR"/test_engbel.log
 
-python generate.py data-bin/ted_8_diverse/ \
+python generate.py data-bin/ted_8_related/ \
           --task multilingual_translation \
           --gen-subset test \
           --path "$OUTDIR"/checkpoint_best.pt \
@@ -51,11 +51,11 @@ python generate.py data-bin/ted_8_diverse/ \
           --lenpen 1.0 \
           --remove-bpe sentencepiece \
 	  --sacrebleu \
-          --lang-pairs "bos-eng,mar-eng,hin-eng,mkd-eng,ell-eng,bul-eng,fra-eng,kor-eng" \
-          --source-lang mkd --target-lang eng \
-          --beam 5   > "$OUTDIR"/test_mkdeng.log
+    	  --lang-pairs "eng-aze,eng-tur,eng-bel,eng-rus,eng-glg,eng-por,eng-slk,eng-ces" \
+          --source-lang eng --target-lang rus \
+          --beam 5   > "$OUTDIR"/test_engrus.log
 
-python generate.py data-bin/ted_8_diverse/ \
+python generate.py data-bin/ted_8_related/ \
           --task multilingual_translation \
           --gen-subset test \
           --path "$OUTDIR"/checkpoint_best.pt \
@@ -63,11 +63,11 @@ python generate.py data-bin/ted_8_diverse/ \
           --lenpen 1.0 \
           --remove-bpe sentencepiece \
 	  --sacrebleu \
-          --lang-pairs "bos-eng,mar-eng,hin-eng,mkd-eng,ell-eng,bul-eng,fra-eng,kor-eng" \
-          --source-lang ell --target-lang eng \
-          --beam 5   > "$OUTDIR"/test_elleng.log
+    	  --lang-pairs "eng-aze,eng-tur,eng-bel,eng-rus,eng-glg,eng-por,eng-slk,eng-ces" \
+          --source-lang eng --target-lang glg \
+          --beam 5   > "$OUTDIR"/test_engglg.log
 
-python generate.py data-bin/ted_8_diverse/ \
+python generate.py data-bin/ted_8_related/ \
           --task multilingual_translation \
           --gen-subset test \
           --path "$OUTDIR"/checkpoint_best.pt \
@@ -75,11 +75,11 @@ python generate.py data-bin/ted_8_diverse/ \
           --lenpen 1.0 \
           --remove-bpe sentencepiece \
 	  --sacrebleu \
-          --lang-pairs "bos-eng,mar-eng,hin-eng,mkd-eng,ell-eng,bul-eng,fra-eng,kor-eng" \
-          --source-lang bul --target-lang eng \
-          --beam 5   > "$OUTDIR"/test_buleng.log
+    	  --lang-pairs "eng-aze,eng-tur,eng-bel,eng-rus,eng-glg,eng-por,eng-slk,eng-ces" \
+          --source-lang eng --target-lang por \
+          --beam 5   > "$OUTDIR"/test_engpor.log
 
-python generate.py data-bin/ted_8_diverse/ \
+python generate.py data-bin/ted_8_related/ \
           --task multilingual_translation \
           --gen-subset test \
           --path "$OUTDIR"/checkpoint_best.pt \
@@ -87,11 +87,11 @@ python generate.py data-bin/ted_8_diverse/ \
           --lenpen 1.0 \
           --remove-bpe sentencepiece \
 	  --sacrebleu \
-          --lang-pairs "bos-eng,mar-eng,hin-eng,mkd-eng,ell-eng,bul-eng,fra-eng,kor-eng" \
-          --source-lang fra --target-lang eng \
-          --beam 5   > "$OUTDIR"/test_fraeng.log
+    	  --lang-pairs "eng-aze,eng-tur,eng-bel,eng-rus,eng-glg,eng-por,eng-slk,eng-ces" \
+          --source-lang eng --target-lang slk \
+          --beam 5   > "$OUTDIR"/test_engslk.log
 
-python generate.py data-bin/ted_8_diverse/ \
+python generate.py data-bin/ted_8_related/ \
           --task multilingual_translation \
           --gen-subset test \
           --path "$OUTDIR"/checkpoint_best.pt \
@@ -99,7 +99,7 @@ python generate.py data-bin/ted_8_diverse/ \
           --lenpen 1.0 \
           --remove-bpe sentencepiece \
 	  --sacrebleu \
-          --lang-pairs "bos-eng,mar-eng,hin-eng,mkd-eng,ell-eng,bul-eng,fra-eng,kor-eng" \
-          --source-lang kor --target-lang eng \
-          --beam 5   > "$OUTDIR"/test_koreng.log
+    	  --lang-pairs "eng-aze,eng-tur,eng-bel,eng-rus,eng-glg,eng-por,eng-slk,eng-ces" \
+          --source-lang eng --target-lang ces \
+          --beam 5   > "$OUTDIR"/test_engces.log
 
