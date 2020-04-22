@@ -67,9 +67,11 @@ def switchout(tokens, lengths, tau, dic, id_to_sample_probabilities=None, lm=Non
         sampled_tokens = tokens.masked_scatter_(corrupt_pos, corrupt_val)
     elif lm is not None:
         #lm_input_tokens = tokens.masked_fill_(corrupt_pos, lm.dictionary.mask())
-        lm_input_tokens = tokens.masked_fill_(corrupt_pos, lm.mask_id)
+        lm_input_tokens = tokens.masked_fill(corrupt_pos, lm.mask_id)
+        if lm.exclude_self:
+            masked_out_tokens = tokens[corrupt_pos].view(-1)
         # append bos
-        lm_input_tokens = torch.cat([torch.ones(tokens.size(0), 1).long().fill_(lm.dictionary.bos()), tokens], dim=1)
+        lm_input_tokens = torch.cat([torch.ones(tokens.size(0), 1).long().fill_(lm.dictionary.bos()), lm_input_tokens], dim=1)
         # B X T X C
         # do not sample mask idx
         if next(lm.parameters()).is_cuda: 
@@ -80,9 +82,15 @@ def switchout(tokens, lengths, tau, dic, id_to_sample_probabilities=None, lm=Non
         lm_output = lm(lm_input_tokens)[0][:,1:,:-1].contiguous()
         B, T, C = lm_output.size()
         lm_output = torch.softmax(lm_output.view(-1, C)*lm.dialect_tau, dim=1)
+        if lm.exclude_self:
+            lm_output = lm_output.view(B, T, C)
+            for i in range(B):
+                for j in range(T):
+                    lm_output[i, j, tokens[i, j]] = 0.
+            lm_output = lm_output.view(-1, C)
         if lm.topk > 0:
             #sorted_idx = torch.argsort(lm_output, dim=1, descending=False)[:,:-lm.topk]
-            sorted_idx = torch.argsort(lm_output, dim=1, descending=True)[:,:lm.topk]
+            sorted_idx = torch.argsort(lm_output, dim=1, descending=True)[:,lm.topk:]
             sorted_idx = sorted_idx.view(B*T, -1)
             lm_output = lm_output.view(B*T, -1)
             lm_output[torch.arange(lm_output.size(0)).unsqueeze(1), sorted_idx] = 0.

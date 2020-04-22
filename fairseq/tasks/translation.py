@@ -150,6 +150,8 @@ class TranslationTask(FairseqTask):
         parser.add_argument('--lm-dict-path', default=None, type=str)
         parser.add_argument('--lm-topk', default=0, type=int)
         parser.add_argument('--src-gradnorm-path', default=None, type=str)
+        parser.add_argument('--src-gradnorm-nosoftmax', action='store_true')
+        parser.add_argument('--exclude-self', action='store_true')
 
     def __init__(self, args, src_dict, tgt_dict):
         super().__init__(args)
@@ -166,8 +168,11 @@ class TranslationTask(FairseqTask):
                         if id%2 == 0:
                             id = int(id / 2)
                             assert id not in self.idx_to_src_gradnorm
-                            self.idx_to_src_gradnorm[id] = scipy.special.softmax([float(t)*args.src_gradnorm_tau for t in toks[1:]]).tolist()
-        elif args.src_gradnorm_path is not None:
+                            if self.args.src_gradnorm_nosoftmax:
+                                array = np.array([float(t) for t in toks[1:]])
+                                self.idx_to_src_gradnorm[id] = (array / np.sum(array)).tolist()
+                            else:
+                                self.idx_to_src_gradnorm[id] = scipy.special.softmax([float(t)*args.src_gradnorm_tau for t in toks[1:]]).tolist()
         else:
             self.idx_to_src_gradnorm = None
 
@@ -311,6 +316,7 @@ class TranslationTask(FairseqTask):
             self.mlm.mask_id = mask_idx
             self.mlm.dialect_tau = self.args.dialect_tau
             self.mlm.topk = self.args.lm_topk
+            self.mlm.exclude_self = self.args.exclude_self
         else:
             self.mlm = None
 
