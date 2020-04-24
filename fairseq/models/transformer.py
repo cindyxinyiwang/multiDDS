@@ -27,6 +27,8 @@ from fairseq.modules import (
     SDEembedding,
 )
 
+from fairseq.modules import SDENoWeight, SDE
+
 DEFAULT_MAX_SOURCE_POSITIONS = 1024
 DEFAULT_MAX_TARGET_POSITIONS = 1024
 
@@ -123,6 +125,7 @@ class TransformerModel(FairseqEncoderDecoderModel):
                                  'Must be used with adaptive_loss criterion'),
         parser.add_argument('--adaptive-softmax-dropout', type=float, metavar='D',
                             help='sets adaptive softmax dropout for the tail projections')
+        parser.add_argument('--sde-enc', action='store_true')
         # fmt: on
 
     @classmethod
@@ -143,7 +146,8 @@ class TransformerModel(FairseqEncoderDecoderModel):
             num_embeddings = len(dictionary)
             padding_idx = dictionary.pad()
             if sde:
-                emb = SDEembedding(char_vsize=num_embeddings, d_vec=embed_dim, padding_idx=padding_idx)
+                #emb = SDEembedding(char_vsize=num_embeddings, d_vec=embed_dim, padding_idx=padding_idx)
+                emb = SDE(src_dict, dim=embed_dim)
             else:
                 emb = Embedding(num_embeddings, embed_dim, padding_idx, fix_norm=args.fix_norm)
             # if provided, load from preloaded dictionaries
@@ -162,13 +166,13 @@ class TransformerModel(FairseqEncoderDecoderModel):
                     args.decoder_embed_path != args.encoder_embed_path):
                 raise ValueError('--share-all-embeddings not compatible with --decoder-embed-path')
             encoder_embed_tokens = build_embedding(
-                src_dict, args.encoder_embed_dim, args.encoder_embed_path, sde=args.sde,
+                src_dict, args.encoder_embed_dim, args.encoder_embed_path, sde=args.sde_enc,
             )
             decoder_embed_tokens = encoder_embed_tokens
             args.share_decoder_input_output_embed = True
         else:
             encoder_embed_tokens = build_embedding(
-                src_dict, args.encoder_embed_dim, args.encoder_embed_path, sde=args.sde,
+                src_dict, args.encoder_embed_dim, args.encoder_embed_path, sde=args.sde_enc,
             )
             decoder_embed_tokens = build_embedding(
                 tgt_dict, args.decoder_embed_dim, args.decoder_embed_path

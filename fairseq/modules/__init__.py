@@ -30,6 +30,7 @@ from .transformer_layer import TransformerDecoderLayer, TransformerEncoderLayer
 from .vggblock import VGGBlock
 from .SDEembedding import SDEembedding
 from .variable_tracker import VariableTracker
+from .sde_embedding import SDE, SDENoWeight
 
 __all__ = [
     'VariableTracker',
@@ -63,4 +64,6 @@ __all__ = [
     'TransformerEncoderLayer',
     'VGGBlock',
     'unfold1d',
+    'SDE',
+    'SDENoWeight',
 ]
