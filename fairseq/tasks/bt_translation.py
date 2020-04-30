@@ -28,6 +28,8 @@ import torch
 from .multilingual_translation import MultilingualTranslationTask
 from . import register_task
 
+from fairseq import checkpoint_utils
+import copy
 
 def _get_bt_dataset_key(lang_pair):
     return "bt:" + lang_pair
@@ -145,6 +147,9 @@ class BtTranslationTask(MultilingualTranslationTask):
         parser.add_argument('--swa-freq', type=int, default=None)
         parser.add_argument('--swa-lr', type=float, default=None)
         parser.add_argument('--swa-schedule-gamma', type=float, default=None)
+
+        parser.add_argument('--dual', action='store_true')
+        parser.add_argument('--lm-path', type=str, default=None)
 
     def __init__(self, args, dicts, training):
         super().__init__(args, dicts, training)
@@ -356,7 +361,7 @@ class BtTranslationTask(MultilingualTranslationTask):
             raise ValueError('SemisupervisedTranslationTask requires a FairseqMultiModel architecture')
         self.bt_model = model.models[_get_dds_bt_key(self.lang_pairs[0])]
         self.bt_model.eval()
-        if self.args.bt_dds:
+        if self.args.bt_dds or self.args.dual:
             # set up data actor finetune optimizer
             bt_params = []
             for lang_pair in self.lang_pairs:
@@ -406,7 +411,32 @@ class BtTranslationTask(MultilingualTranslationTask):
                         bos_token=bos_token,
                     )
                 self.backtranslators[lang_pair] = backtranslate_fn
-
+        if args.dual:
+            lm_args = copy.deepcopy(args)
+            lm_args.tokens_per_sample = 512
+            lm_args.sample_break_mode = "none"
+            lm_args.arch = "transformer_lm"
+            lm_args.decoder_embed_dim = 512
+            lm_args.decoder_ffn_embed_dim = 2048
+            lm_args.decoder_layers = 6
+            lm_args.decoder_attention_heads = 8
+            lm_args.decoder_output_dim = lm_args.decoder_embed_dim
+            lm_args.decoder_input_dim = lm_args.decoder_embed_dim
+            lm_args.scale_norm = False
+            lm_args.share_decoder_input_output_embed = False
+            self.lm = models.build_model(lm_args, self)
+            state = checkpoint_utils.load_checkpoint_to_cpu(args.lm_path)
+            try:
+                self.lm.load_state_dict(state['model'], strict=True)
+            except Exception:
+                raise Exception(
+                        'Cannot load model parameters from checkpoint {}; '
+                        'please ensure that the architectures match.'.format(args.lm_path)
+                )
+            if self.cuda:
+                print('move lm to cuda..')
+                self.lm = self.lm.cuda()
+            self.lm.eval()
         return model
 
     def train_step(self, sample, model, criterion, optimizer, ignore_grad=False, data_score=None):
@@ -459,6 +489,20 @@ class BtTranslationTask(MultilingualTranslationTask):
             #print(sample[sample_key][0])
             loss, sample_size, logging_output, nll_loss_data, dev_grad_dotprod = criterion(model.models[lang_pair], sample[sample_key][0], val_loss_data=None, loss_copy=True)
             
+            if self.args.dual:
+                alpha = 0.1
+                bt_lang_pair = _get_dds_bt_key(lang_pair)
+                sample[sample_key][0]['target'] = sample[sample_key][0]['net_input']['src_tokens']
+                del sample[sample_key][0]['net_input']['prev_output_tokens'] 
+                lm_loss, lm_sample_size, lm_logging_output, lm_loss_data, _ = criterion(self.lm, sample[sample_key][0], loss_copy=True)
+                model_loss_r = nll_loss_data.sum(dim=1).data / sample_size
+                lm_loss_r = lm_loss_data.sum(dim=1).data / lm_sample_size
+                
+                reward = -model_loss_r.unsqueeze(1) * (1-alpha) - lm_loss_r.unsqueeze(1) * alpha
+                bt_loss, bt_sample_size, bt_logging_output, bt_val_loss_data, _ = criterion(model.models[bt_lang_pair], sample[sample_key][1], data_score=reward, loss_copy=False)
+                self.bt_sample_size += bt_sample_size
+                bt_loss.backward()
+
             if self.args.bt_dds:
                 # B X T
                 nll_loss = nll_loss_data.sum(dim=1) / sample_size
@@ -545,6 +589,7 @@ class BtTranslationTask(MultilingualTranslationTask):
                     loss = loss * self.args.bt_parallel_update
                     loss.backward()
                 model.models[bt_lang_pair].eval()
+
                    
         return agg_loss, agg_sample_size, agg_logging_output, None, None
 
@@ -569,7 +614,7 @@ class BtTranslationTask(MultilingualTranslationTask):
             self.lambda_otf_bt = lambda_step_func(self.lambda_otf_bt_steps, num_updates)
         if self.lambda_denoising_steps is not None:
             self.lambda_denoising = lambda_step_func(self.lambda_denoising_steps, num_updates)
-        if self.args.bt_dds:
+        if self.args.bt_dds or self.args.dual:
             if self.args.bt_norm_by_word:
                 for param in self.bt_model.parameters():
                     param.grad /= self.bt_sample_size  
