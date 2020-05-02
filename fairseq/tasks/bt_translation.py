@@ -490,7 +490,8 @@ class BtTranslationTask(MultilingualTranslationTask):
             loss, sample_size, logging_output, nll_loss_data, dev_grad_dotprod = criterion(model.models[lang_pair], sample[sample_key][0], val_loss_data=None, loss_copy=True)
             
             if self.args.dual:
-                alpha = 0.1
+                #alpha = 0.1
+                alpha = 0.5
                 bt_lang_pair = _get_dds_bt_key(lang_pair)
                 sample[sample_key][0]['target'] = sample[sample_key][0]['net_input']['src_tokens']
                 del sample[sample_key][0]['net_input']['prev_output_tokens'] 
