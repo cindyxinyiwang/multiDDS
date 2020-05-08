@@ -237,6 +237,7 @@ class TransformerEncoder(FairseqEncoder):
         else:
             self.layer_norm = None
         self.tracker = VariableTracker()
+        self.track_gradients = False 
 
     def set_gradient_tracking_mode(self, mode=True):
         self.tracker.reset()
