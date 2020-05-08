@@ -25,6 +25,7 @@ from fairseq.modules import (
     TransformerDecoderLayer,
     TransformerEncoderLayer,
     SDEembedding,
+    VariableTracker,
 )
 
 from fairseq.modules import SDENoWeight, SDE
@@ -166,13 +167,13 @@ class TransformerModel(FairseqEncoderDecoderModel):
                     args.decoder_embed_path != args.encoder_embed_path):
                 raise ValueError('--share-all-embeddings not compatible with --decoder-embed-path')
             encoder_embed_tokens = build_embedding(
-                src_dict, args.encoder_embed_dim, args.encoder_embed_path, sde=args.sde_enc,
+                src_dict, args.encoder_embed_dim, args.encoder_embed_path,
             )
             decoder_embed_tokens = encoder_embed_tokens
             args.share_decoder_input_output_embed = True
         else:
             encoder_embed_tokens = build_embedding(
-                src_dict, args.encoder_embed_dim, args.encoder_embed_path, sde=args.sde_enc,
+                src_dict, args.encoder_embed_dim, args.encoder_embed_path,
             )
             decoder_embed_tokens = build_embedding(
                 tgt_dict, args.decoder_embed_dim, args.decoder_embed_path
@@ -235,6 +236,12 @@ class TransformerEncoder(FairseqEncoder):
             self.layer_norm = LayerNorm(embed_dim, scale=scale)
         else:
             self.layer_norm = None
+        self.tracker = VariableTracker()
+
+    def set_gradient_tracking_mode(self, mode=True):
+        self.tracker.reset()
+        self.track_gradients = mode
+
 
     def forward(self, src_tokens, src_lengths):
         """
@@ -253,7 +260,12 @@ class TransformerEncoder(FairseqEncoder):
         """
         # embed tokens and positions
         #embed_tokens = torch.nn.functional.normalize(self.embed_tokens, dim=-1) if self.args.fix_norm else self.embed_tokens
-        x = self.embed_scale * self.embed_tokens(src_tokens)
+        self.tracker.reset()
+        x = self.embed_tokens(src_tokens)
+        self.tracker.track(x, "token_embeddings", retain_grad=self.track_gradients)
+
+        #x = self.embed_scale * self.embed_tokens(src_tokens)
+        x = self.embed_scale * x
 
         # compute padding mask
         if self.sde:

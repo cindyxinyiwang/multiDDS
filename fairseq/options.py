@@ -28,6 +28,7 @@ def get_training_parser(default_task='translation'):
     add_generation_args(parser)
     add_switchout_args(parser)
     add_data_filter_args(parser)
+    adversarial_options.add_adversarial_args(parser, train=True)
     return parser
 
 
@@ -79,6 +80,7 @@ def eval_bool(x, default=False):
         return default
 
 
+from fairseq.tasks import adversarial_options
 def parse_args_and_arch(parser, input_args=None, parse_known=False, suppress_defaults=False):
     if suppress_defaults:
         # Parse args without any default values. This requires us to parse
@@ -132,6 +134,14 @@ def parse_args_and_arch(parser, input_args=None, parse_known=False, suppress_def
         # hack to support extra args for block distributed data parallelism
         from fairseq.optim.bmuf import FairseqBMUF
         FairseqBMUF.add_args(parser)
+    if getattr(args, 'adversary', False):
+        from fairseq.tasks.adversaries import (
+            ADVERSARY_REGISTRY, BaseAdversary
+        )
+        from fairseq.criterions import CRITERION_REGISTRY
+        CRITERION_REGISTRY[args.adv_criterion].add_args(parser)
+        ADVERSARY_REGISTRY[args.adversary].add_args(parser)
+
 
     # Parse a second time.
     if parse_known:
