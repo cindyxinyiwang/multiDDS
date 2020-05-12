@@ -18,7 +18,7 @@ def get_preprocessing_parser(default_task='translation'):
     return parser
 
 
-def get_training_parser(default_task='translation'):
+def get_training_parser(default_task='translation', adv_train=False):
     parser = get_parser('Trainer', default_task)
     add_dataset_args(parser, train=True)
     add_distributed_training_args(parser)
@@ -28,7 +28,8 @@ def get_training_parser(default_task='translation'):
     add_generation_args(parser)
     add_switchout_args(parser)
     add_data_filter_args(parser)
-    adversarial_options.add_adversarial_args(parser, train=True)
+    if adv_train:
+        adversarial_options.add_adversarial_args(parser, train=True)
     return parser
 
 

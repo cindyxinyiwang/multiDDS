@@ -585,7 +585,7 @@ def distributed_main(i, args, start_rank=0):
 
 
 def cli_main():
-    parser = options.get_training_parser()
+    parser = options.get_training_parser(adv_train=True)
     args = options.parse_args_and_arch(parser)
 
     if args.distributed_init_method is None:
