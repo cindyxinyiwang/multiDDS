@@ -128,6 +128,10 @@ class MultilingualTransformerModel(FairseqMultiModel):
         lang_encoders, lang_decoders = {}, {}
 
         def get_encoder(lang):
+            """
+            Encoder and decoder are both Transformer based, standard implementation
+            for each language pair, we have a pair of Encoder and Decoder and tie together with FairseqEncoderDecoder
+            """
             if lang not in lang_encoders:
                 if shared_encoder_embed_tokens is not None:
                     encoder_embed_tokens = shared_encoder_embed_tokens
