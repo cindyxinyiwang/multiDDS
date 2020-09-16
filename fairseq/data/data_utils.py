@@ -306,9 +306,10 @@ def filter_by_data_actor(indices, dataset, data_actor, data_filter_percentage=-1
         for i, sample in enumerate(itr):
             sample = trainer._prepare_sample(sample)
             sample = list(sample.values())[0]
-            #print(sample)
+            # scare is B X 1
             score = data_actor(sample['net_input']['src_tokens'], sample['target']).data.cpu().numpy()
             idx_start = idx_end
+            # update the batch range
             idx_end = idx_start + score.shape[0]
             scores[idx_start:idx_end] = score.ravel()
             ids[idx_start:idx_end] = sample['id'].data.cpu().numpy().ravel()

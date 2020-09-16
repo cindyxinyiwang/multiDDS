@@ -102,4 +102,94 @@ python train.py data-bin/ted_8_related/ \
             - update learning rate: `lr = trainer.lr_step(epoch_itr.epoch, valid_losses[0])`
             - save checkpoint
     - train function: (controls training for 1 epoch only), largely re-written by the author of DDS paper
-        - 
+        - check dds_select, if use dds selection, filter training data 
+        ```
+        if epoch_itr.epoch == args.select_by_dds_epoch and args.select_by_dds_epoch > 0:
+            epoch_itr, _ = trainer.get_filtered_train_iterator(epoch_itr.epoch, filtered_maxpos_indices=filtered_maxpos_indices)
+        ```
+        - in the process (train steps in one epoch):
+            - call train_step from `trainer` which return the log_output
+            - trainer call update_language_sampler => `use reinforcement to influence data sampling`
+            ```
+            log_output = trainer.train_step(samples, update_actor=update_actor)
+            ```
+            - get validate_loss and should_stop signal `valid_losses = validate(args, trainer, task, epoch_itr, valid_subsets, generator)` and same the checkpoint (in original code, fairseq does not save checkpoint here)
+
+- Trainer:
+    - in train.py, two function from traner is used: `get_filtered_train_iterator` and `train_step`, I will give detailed explanation of these two functions and their related utilities. The other important functions include `pretrain_data_actor`, ` update_language_sampler`, `update_language_sampler_multilin`, etc.
+    - init:
+        - define args, task, meters, etc. 
+        - check which data actor to use: (the author implemented four customized data actor):
+            - BaseActor: only contains a linear layer which return logits of dimension [language_size] => a distribution of data to load for each language
+            - LanguageActor: using an embedding to convert language into an embedding_dimension defined by user and then project back to a distribution of languages
+            - AveEmbActor: average embedding actor, use the source and target dictionary from task. Embed the source and target word, concat them and project to a dimension [#languages], representing the data distribution. This method takes the actual tokens into account.
+        - set dev set iterator if data_actor_step_update is set, 
+        ```
+        self.dev_itr = self.task.get_batch_iterator(
+            dataset=self.task.dataset('valid'),....
+            )[0]
+        ```
+    - get_train_iterator:
+        - return EpochBatchIterator, bascially the same as the default implemetation by fairseq, use `task.get_batch_iterator` which uses the `fairseq_task`'s function (the author modified source code)
+        - details of modified get_batch_iterator:
+            - input expanded with `data_actor=None, trainer=None, data_filter_percentage=-1, filtered_maxpos_indices=None,`
+            - implement data filtering with data_utils:
+            ```
+            if data_filter_percentage > 0:
+                indices = data_utils.filter_by_data_actor(indices, dataset, data_actor, data_filter_percentage, trainer=trainer)
+            ```
+            - filter_by_data_actor(indices, dataset, data_actor, data_filter_percentage=-1, trainer=None):
+                - if not random data filter, call data actor to get a score (a distribution of data input of each language)
+                ```
+                itr = iterators.EpochBatchIterator(
+                    dataset=dataset,
+                    collate_fn=dataset.collater,
+                    batch_sampler=batch_sampler
+                ).next_epoch_itr(shuffle=False)
+
+                idx_start, idx_end = 0, 0
+                scores = np.zeros(len(indices))
+                ids = np.zeros(len(indices), dtype=np.int64)
+
+                for i, sample in enumerate(itr):
+                    sample = trainer._prepare_sample(sample)
+                    sample = list(sample.values())[0]
+
+                    # score is of size B X 1
+                    score = data_actor(sample['net_input']['src_tokens'], sample['target']).data.cpu().numpy()
+                    idx_start = idx_end
+
+                    # update the batch range
+                    idx_end = idx_start + score.shape[0]
+                    scores[idx_start:idx_end] = score.ravel()
+                    ids[idx_start:idx_end] = sample['id'].data.cpu().numpy().ravel()
+
+                # argsort is ascending order
+                preserved_indices = np.argsort(scores)[int(len(indices)*data_filter_percentage):]
+                indices = np.array(ids)[preserved_indices]
+        ```
+    - get_filtered_train_iterator:
+        - basically the same as function above, with one extra parameter:`data_filter_percentage=self.args.data_filter_percentage`
+        - adding the percentage will make the `get_train_iterator` call the data_actor_filter function shown above
+    - train_step:
+        - `train_step(self, samples, dummy_batch=False, raise_oom=False, update_actor=True)`
+        - in side train_step, the task's train_step is called, passed in the sample, model, criterion, optimizer , etc.
+        ```
+        loss, sample_size, logging_output = self.task.train_step(
+            sample, self.model, self.criterion, self.optimizer,
+            ignore_grad, data_actor=data_actor, 
+            loss_copy=cached_loss, data_actor_out=data_actor_out,
+        )
+        ```
+        - then save the training gradient
+        - if try to update data_actor:
+            - use model to train on the valid sample and get valid's loss, etc
+            - train again on the sample and get `current loss and cached loss` to update the reward `reward = 1./eta * (cur_loss[k] - cached_loss[k])` and backward on the data_actor's network
+
+    - update_language_sampler:
+        - load in optimizer, data_actor, data_optimizer
+        - like normal training, call task.train_step and save gradients. Then train on valid dataset and get the gradient, update the data actor as well as a simlarity probability => change the distribution of training set based the distribution
+        ```
+        self.task.dataset('train').update_sampling_distribution(sim_list)
+        ```
+        - seems like this function has error in variable name mismatch??? and where is the update_sampling_distribution?
