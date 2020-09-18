@@ -33,7 +33,6 @@ class LanguageActor(torch.nn.Module):
         assert embed_num == self.lan_size
         self.rand_lan_emb = Embedding(self.lan_size, lan_embed_dim-fixed_embed_dim)
         if not optimize_emb:
-            # not optimizing the language's embedding by gradient update
             self.lan_emb.weight.requires_grad = False
             self.rand_lan_emb.weight.requires_grad = False
     else:
@@ -43,7 +42,6 @@ class LanguageActor(torch.nn.Module):
     # init
     self.w = torch.nn.Linear(lan_embed_dim, embed_dim)
     self.project_out = torch.nn.Linear(embed_dim, 1)
-    # init with uniform distribution for the language distribution
     for p in self.w.parameters():
         torch.nn.init.uniform_(p, -0.1, 0.1)
     for p in self.project_out.parameters():

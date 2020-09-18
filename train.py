@@ -105,7 +105,7 @@ def main(args, init_distributed=False):
 
         if ':' in getattr(args, 'data', ''):
             # sharded data: get train iterator for next epoch
-            epoch_itr = train
+            epoch_itr = trainer.get_train_iterator(epoch_itr.epoch)[0]
     train_meter.stop()
     print('| done training in {:.1f} seconds'.format(train_meter.sum))
 
@@ -118,10 +118,8 @@ def train(args, trainer, task, epoch_itr, generator=None, filtered_maxpos_indice
     extra_meters = collections.defaultdict(lambda: AverageMeter())
     valid_subsets = args.valid_subset.split(',')
     max_update = args.max_update or math.inf
-
     # data selection: reset epoch iter to filter out unselected data
     if epoch_itr.epoch == args.select_by_dds_epoch and args.select_by_dds_epoch > 0:
-        # this function call the data_utils' filter_by_data_actor, which return a epoch iterator and indices
         epoch_itr, _ = trainer.get_filtered_train_iterator(epoch_itr.epoch, filtered_maxpos_indices=filtered_maxpos_indices)
 
     if args.update_language_sampling > 0 and args.select_by_dds_epoch < 0 and (not args.data_actor_step_update):
@@ -148,8 +146,6 @@ def train(args, trainer, task, epoch_itr, generator=None, filtered_maxpos_indice
 
         for i, samples in enumerate(progress, start=epoch_itr.iterations_in_epoch):
             #print(samples)
-
-            # condition check for actor update
             if args.extra_data_actor == 'ave_emb':
                 update_actor = (i % args.extra_update_language_sampling == 0)
             elif args.data_actor_step_update:
@@ -159,8 +155,6 @@ def train(args, trainer, task, epoch_itr, generator=None, filtered_maxpos_indice
             else:
                 update_actor = False
             if ( epoch_itr.epoch > args.select_by_dds_epoch and args.select_by_dds_epoch > 0): update_actor = False
-
-            # update_actor controls whether reinforcement learning network is updated
             log_output = trainer.train_step(samples, update_actor=update_actor)
             if log_output is None:
                 continue
