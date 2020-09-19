@@ -13,3 +13,4 @@ fairseq-generate $DIR/data-bin/  \
           --lang-pairs "src-trg" \
           --source-lang src --target-lang trg \
           --beam 5
+

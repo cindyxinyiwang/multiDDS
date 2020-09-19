@@ -118,6 +118,7 @@ def train(args, trainer, task, epoch_itr, generator=None, filtered_maxpos_indice
     extra_meters = collections.defaultdict(lambda: AverageMeter())
     valid_subsets = args.valid_subset.split(',')
     max_update = args.max_update or math.inf
+
     # data selection: reset epoch iter to filter out unselected data
     if epoch_itr.epoch == args.select_by_dds_epoch and args.select_by_dds_epoch > 0:
         epoch_itr, _ = trainer.get_filtered_train_iterator(epoch_itr.epoch, filtered_maxpos_indices=filtered_maxpos_indices)
@@ -159,12 +160,17 @@ def train(args, trainer, task, epoch_itr, generator=None, filtered_maxpos_indice
             if log_output is None:
                 continue
 
+
+            # comment out since I only want sentence-specific data selection
+
             # update sampling distribution
-            if args.update_language_sampling > 0 and i % args.update_language_sampling == 0 and args.data_actor != 'ave_emb' and not args.data_actor_step_update:
-                if args.data_actor_multilin:
-                    trainer.update_language_sampler_multilin(args, epoch=epoch_itr.epoch)
-                else:
-                    trainer.update_language_sampler(args)
+            # if args.update_language_sampling > 0 and i % args.update_language_sampling == 0 and args.data_actor != 'ave_emb' and not args.data_actor_step_update:
+            #     if args.data_actor_multilin:
+            #         trainer.update_language_sampler_multilin(args, epoch=epoch_itr.epoch)
+            #     else:
+            #         trainer.update_language_sampler(args)
+
+
             # log mid-epoch stats
             stats = get_training_stats(trainer)
             for k, v in log_output.items():

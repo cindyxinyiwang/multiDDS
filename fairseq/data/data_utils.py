@@ -307,7 +307,12 @@ def filter_by_data_actor(indices, dataset, data_actor, data_filter_percentage=-1
             sample = trainer._prepare_sample(sample)
             sample = list(sample.values())[0]
             #print(sample)
-            score = data_actor(sample['net_input']['src_tokens'], sample['target']).data.cpu().numpy()
+            # sample is a batch, use src & trg in this batch to predict how likely we choose this data
+            # score should be size [batch_size], use the score to order the datapoints in this batch
+
+            # the data actor cannot take 2 arguments and predict on token with Base data actor
+            # score = data_actor(sample['net_input']['src_tokens'], sample['target']).data.cpu().numpy()
+            score = data_actor(sample).data.cpu().numpy()
             idx_start = idx_end
             idx_end = idx_start + score.shape[0]
             scores[idx_start:idx_end] = score.ravel()

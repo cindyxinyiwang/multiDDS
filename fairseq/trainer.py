@@ -70,7 +70,18 @@ class Trainer(object):
             self.data_actor = BaseActor(args, len(langs))
             if self.cuda:
                 self.data_actor = self.data_actor.cuda()
-            self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
+            self.data_optimizer = torch.optim.Adam\
+                ([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
+        elif self.args.data_actor == 'ave':
+            # add a check for filter by percentage
+            # langs = self.args.langs.split(',')
+            self.cur_data_actor_probs = []
+            # do not use embedding, let data actor generate default one
+            self.data_actor = AveEmbActor(args, task)
+            if self.cuda:
+                self.data_actor = self.data_actor.cuda()
+            self.data_optimizer = torch.optim.Adam \
+                ([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
         else:
             self.data_actor = None
             self.data_optimizer = None
@@ -281,6 +292,7 @@ class Trainer(object):
                         'please ensure that the architectures match.'.format(filename)
                     )
 
+                # stores the train iterator info, val_loss, train_meters etc.
                 extra_state = state['extra_state']
                 self._optim_history = state['optimizer_history']
                 last_optim_state = state.get('last_optimizer_state', None)

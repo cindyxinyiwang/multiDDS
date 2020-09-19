@@ -276,7 +276,7 @@ class MultilingualTranslationTask(FairseqTask):
                 eval_key=None if training else "%s-%s" % (source_lang, target_lang),
             )
         elif self.dataset_type == 'multi':
-            self.datasets[split] =  MultiCorpusSampledDataset(
+            self.datasets[split] = MultiCorpusSampledDataset(
                 OrderedDict([
                     (lang_pair, language_pair_dataset(lang_pair))
                     for lang_pair in lang_pairs
