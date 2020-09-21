@@ -1,18 +1,9 @@
 #!/bin/bash
 
-#SBATCH --nodes=1
-#SBATCH --gres=gpu:1
-#SBATCH --time=0
-#SBATCH --mem=15GB
+MODEL_DIR=/home/steven/Documents/GITHUB/multiDDS
+source $MODEL_DIR/venv/bin/activate
 
-MODEL_DIR=checkpoints/related_ted8_m2o/multidds_s/
-mkdir -p $MODEL_DIR
-
-export PYTHONPATH="$(pwd)"
-
-echo 'slurm id '$SLURM_JOB_ID >> $MODEL_DIR/train.log
-
-python train.py data-bin/ted_8_related/ \
+fairseq-train $MODEL_DIR/data-bin/ted_8_related/ \
 	  --task multilingual_translation \
 	  --arch multilingual_transformer_iwslt_de_en \
 	  --max-epoch 40 \
@@ -26,8 +17,8 @@ python train.py data-bin/ted_8_related/ \
 	  --optimizer 'adam' --adam-betas '(0.9, 0.98)' --lr-scheduler 'inverse_sqrt_decay' \
 	  --warmup-init-lr 1e-7 --warmup-updates 4000 --lr 2e-4 --lr-shrink 0.8 \
 	  --criterion 'label_smoothed_cross_entropy' --label-smoothing 0.1 \
-	  --max-tokens 4800 \
-	  --update-freq 2 \
+	  --max-tokens 600 \
+	  --update-freq 16 \
 	  --seed 2 \
   	  --max-source-positions 150 --max-target-positions 150 \
   	  --save-dir $MODEL_DIR \
