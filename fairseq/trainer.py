@@ -451,16 +451,9 @@ class Trainer(object):
         self.criterion.train()
         self.zero_grad()
 
-        sim_list, all_sim_list = [], []
-        norm_list, all_norm_list = [], []
-
         optimizer = self.optimizer
         data_actor = self.data_actor
         data_optimizer = self.data_optimizer
-        if len(self.cur_data_actor_probs) == 0:
-            self.cur_data_actor_probs = [[] for _ in range(len(data_optimizers))]
-        for optim_id, optimizer in enumerate(optimizers):
-
         sim_list, all_sim_list = [], []
         norm_list, all_norm_list = [], []
 
@@ -469,7 +462,7 @@ class Trainer(object):
             #for _ in range(self.args.loss_steps):
             sample = self.task.dataset('train').get_sample_with_key(key)
             sample = self._prepare_sample(sample)
-            loss, sample_size, logging_output = self.task.train_step(
+            train_loss, sample_size, logging_output = self.task.train_step(
                                     sample, self.model, self.criterion, optimizer)
             optimizer.save_train_grad_t0()
             self.zero_grad()
@@ -479,7 +472,7 @@ class Trainer(object):
                 valid_sample = self.task.dataset('valid').get_sample_with_key(valid_key)
                 valid_sample = self._prepare_sample(valid_sample)
                 # calculate sim
-                loss, sample_size, logging_output = self.task.train_step(
+                valid_loss, sample_size, logging_output = self.task.train_step(
                                         valid_sample, self.model, self.criterion, optimizer)
                 valid_samples.append(valid_sample)
             sim, cur_cosine_norm, prev_cosine_norm = optimizer.get_grad_sim()
@@ -521,7 +514,7 @@ class Trainer(object):
             prob = torch.nn.functional.softmax(a_logits, dim=-1)
             sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
 
-            self.cur_data_actor_probs[optim_id] = sim_list
+            self.cur_data_actor_probs[0] = sim_list
 
         self.cur_data_actor_probs = np.array(self.cur_data_actor_probs)
         sim_list = self.cur_data_actor_probs.sum(axis=0)
