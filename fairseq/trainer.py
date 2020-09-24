@@ -70,7 +70,18 @@ class Trainer(object):
             self.data_actor = BaseActor(args, len(langs))
             if self.cuda:
                 self.data_actor = self.data_actor.cuda()
-            self.data_optimizer = torch.optim.Adam([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
+            self.data_optimizer = torch.optim.Adam\
+                ([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
+        elif self.args.data_actor == 'ave':
+            # add a check for filter by percentage
+            # langs = self.args.langs.split(',')
+            self.cur_data_actor_probs = []
+            # do not use embedding, let data actor generate default one
+            self.data_actor = AveEmbActor(args, task)
+            if self.cuda:
+                self.data_actor = self.data_actor.cuda()
+            self.data_optimizer = torch.optim.Adam \
+                ([p for p in self.data_actor.parameters() if p.requires_grad], lr=self.args.data_actor_lr)
         else:
             self.data_actor = None
             self.data_optimizer = None
@@ -281,6 +292,7 @@ class Trainer(object):
                         'please ensure that the architectures match.'.format(filename)
                     )
 
+                # stores the train iterator info, val_loss, train_meters etc.
                 extra_state = state['extra_state']
                 self._optim_history = state['optimizer_history']
                 last_optim_state = state.get('last_optimizer_state', None)
@@ -457,19 +469,26 @@ class Trainer(object):
         optimizer = self.optimizer
         data_actor = self.data_actor
         data_optimizer = self.data_optimizer
-        if len(self.cur_data_actor_probs) == 0:
-            self.cur_data_actor_probs = [[] for _ in range(len(data_optimizers))]
-        for optim_id, optimizer in enumerate(optimizers):
+        # revise the code so that it at least work for one language pair
+        self.cur_data_actor_probs = [[]]
 
-        sim_list, all_sim_list = [], []
-        norm_list, all_norm_list = [], []
+        # if len(self.cur_data_actor_probs) == 0:
+        #     self.cur_data_actor_probs = [[] for _ in range(len(data_optimizers))]
+        # for optim_id, optimizer in enumerate(optimizers):
+        #
+        #     sim_list, all_sim_list = [], []
+        #     norm_list, all_norm_list = [], []
 
         optimizer.clone_param()
+        # for each language pair in the multi-lingual model,
+        # we get the training gradient, and compare it with all the dev gradients
         for i, key in enumerate(self.task.dataset('train').datasets.keys()):
             #for _ in range(self.args.loss_steps):
             sample = self.task.dataset('train').get_sample_with_key(key)
             sample = self._prepare_sample(sample)
-            loss, sample_size, logging_output = self.task.train_step(
+
+            # rename the parameter, seems to have bug in original code??
+            train_losses, sample_size, logging_output = self.task.train_step(
                                     sample, self.model, self.criterion, optimizer)
             optimizer.save_train_grad_t0()
             self.zero_grad()
@@ -479,7 +498,7 @@ class Trainer(object):
                 valid_sample = self.task.dataset('valid').get_sample_with_key(valid_key)
                 valid_sample = self._prepare_sample(valid_sample)
                 # calculate sim
-                loss, sample_size, logging_output = self.task.train_step(
+                valid_losses, sample_size, logging_output = self.task.train_step(
                                         valid_sample, self.model, self.criterion, optimizer)
                 valid_samples.append(valid_sample)
             sim, cur_cosine_norm, prev_cosine_norm = optimizer.get_grad_sim()
@@ -503,6 +522,8 @@ class Trainer(object):
                 exit(1)
             self.pretrained = True
             self.pretrain_data_actor(feature)
+
+        # feature has size #lang-pairs, become a updated prob distribution
         feature = torch.ones(1, len(self.task.dataset('train').datasets.keys()))
         grad_scale = torch.FloatTensor(sim_list).view(1, -1)
         
@@ -521,7 +542,7 @@ class Trainer(object):
             prob = torch.nn.functional.softmax(a_logits, dim=-1)
             sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
 
-            self.cur_data_actor_probs[optim_id] = sim_list
+            self.cur_data_actor_probs[0] = sim_list
 
         self.cur_data_actor_probs = np.array(self.cur_data_actor_probs)
         sim_list = self.cur_data_actor_probs.sum(axis=0)

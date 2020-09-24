@@ -1,23 +1,20 @@
 #!/bin/bash
 
-#SBATCH --nodes=1
-#SBATCH --gres=gpu:1
-#SBATCH --time=0
-#SBATCH --mem=15GB
 
-OUTDIR=$1
+MODEL_DIR=/home/steven/Documents/GITHUB/multiDDS
+source $MODEL_DIR/venv/bin/activate
 
-python generate.py data-bin/ted_8_related/ \
+fairseq-generate data-bin/ted_8_related/ \
           --task multilingual_translation \
           --gen-subset test \
-          --path "$OUTDIR"/checkpoint_best.pt \
+          --path $MODEL_DIR/checkpoint_best.pt \
           --batch-size 32 \
           --lenpen 1.0 \
           --remove-bpe sentencepiece \
-	  --sacrebleu \
+	        --sacrebleu \
           --lang-pairs "aze-eng,tur-eng,bel-eng,rus-eng,glg-eng,por-eng,slk-eng,ces-eng" \
           --source-lang aze --target-lang eng \
-          --beam 5   > "$OUTDIR"/test_azeeng.log
+          --beam 5
 
 python generate.py data-bin/ted_8_related/ \
           --task multilingual_translation \
@@ -29,7 +26,7 @@ python generate.py data-bin/ted_8_related/ \
 	  --sacrebleu \
           --lang-pairs "aze-eng,tur-eng,bel-eng,rus-eng,glg-eng,por-eng,slk-eng,ces-eng" \
           --source-lang tur --target-lang eng \
-          --beam 5   > "$OUTDIR"/test_tureng.log
+          --beam 5
 
 python generate.py data-bin/ted_8_related/ \
           --task multilingual_translation \
@@ -41,7 +38,7 @@ python generate.py data-bin/ted_8_related/ \
 	  --sacrebleu \
           --lang-pairs "aze-eng,tur-eng,bel-eng,rus-eng,glg-eng,por-eng,slk-eng,ces-eng" \
           --source-lang bel --target-lang eng \
-          --beam 5   > "$OUTDIR"/test_beleng.log
+          --beam 5
 
 python generate.py data-bin/ted_8_related/ \
           --task multilingual_translation \
@@ -53,7 +50,7 @@ python generate.py data-bin/ted_8_related/ \
 	  --sacrebleu \
           --lang-pairs "aze-eng,tur-eng,bel-eng,rus-eng,glg-eng,por-eng,slk-eng,ces-eng" \
           --source-lang rus --target-lang eng \
-          --beam 5   > "$OUTDIR"/test_ruseng.log
+          --beam 5
 
 python generate.py data-bin/ted_8_related/ \
           --task multilingual_translation \
@@ -65,7 +62,7 @@ python generate.py data-bin/ted_8_related/ \
 	  --sacrebleu \
           --lang-pairs "aze-eng,tur-eng,bel-eng,rus-eng,glg-eng,por-eng,slk-eng,ces-eng" \
           --source-lang glg --target-lang eng \
-          --beam 5   > "$OUTDIR"/test_glgeng.log
+          --beam 5
 
 python generate.py data-bin/ted_8_related/ \
           --task multilingual_translation \
@@ -77,7 +74,7 @@ python generate.py data-bin/ted_8_related/ \
 	  --sacrebleu \
           --lang-pairs "aze-eng,tur-eng,bel-eng,rus-eng,glg-eng,por-eng,slk-eng,ces-eng" \
           --source-lang por --target-lang eng \
-          --beam 5   > "$OUTDIR"/test_poreng.log
+          --beam 5
 
 python generate.py data-bin/ted_8_related/ \
           --task multilingual_translation \
@@ -89,7 +86,7 @@ python generate.py data-bin/ted_8_related/ \
 	  --sacrebleu \
           --lang-pairs "aze-eng,tur-eng,bel-eng,rus-eng,glg-eng,por-eng,slk-eng,ces-eng" \
           --source-lang slk --target-lang eng \
-          --beam 5   > "$OUTDIR"/test_slkeng.log
+          --beam 5
 
 python generate.py data-bin/ted_8_related/ \
           --task multilingual_translation \
@@ -101,5 +98,5 @@ python generate.py data-bin/ted_8_related/ \
 	  --sacrebleu \
           --lang-pairs "aze-eng,tur-eng,bel-eng,rus-eng,glg-eng,por-eng,slk-eng,ces-eng" \
           --source-lang ces --target-lang eng \
-          --beam 5   > "$OUTDIR"/test_ceseng.log
+          --beam 5
 

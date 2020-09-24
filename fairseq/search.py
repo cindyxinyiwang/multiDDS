@@ -68,7 +68,7 @@ class BeamSearch(Search):
             # make probs contain cumulative scores for each hypothesis
             lprobs.add_(scores[:, :, step - 1].unsqueeze(-1))
 
-        torch.topk(
+        top_prediction= torch.topk(
             lprobs.view(bsz, -1),
             k=min(
                 # Take the best 2 x beam_size predictions. We'll choose the first
@@ -78,9 +78,15 @@ class BeamSearch(Search):
             ),
             out=(self.scores_buf, self.indices_buf),
         )
-        torch.div(self.indices_buf, vocab_size, out=self.beams_buf)
-        self.indices_buf.fmod_(vocab_size)
-        return self.scores_buf, self.indices_buf, self.beams_buf
+
+        scores_buf = top_prediction[0]
+        indices_buf = top_prediction[1]
+        # Project back into relative indices and beams
+        beams_buf = indices_buf // vocab_size
+        indices_buf = indices_buf.fmod(vocab_size)
+
+        # At this point, beams_buf and indices_buf are single-dim and contain relative indices
+        return scores_buf, indices_buf, beams_buf
 
 
 class LengthConstrainedBeamSearch(Search):
