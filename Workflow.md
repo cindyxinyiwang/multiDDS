@@ -193,3 +193,19 @@ python train.py data-bin/ted_8_related/ \
         self.task.dataset('train').update_sampling_distribution(sim_list)
         ```
         - seems like this function has error in variable name mismatch??? and where is the update_sampling_distribution?
+        
+### Modification on data selection by data actor
+- Following num reset needed or not? The update_frequency and num reset work together. When resetting
+the epoch iterator, epoch_itr.next_epoch_itr is called with an `
+offset=reset_idx*(args.update_language_sampling*args.update_freq[0]+1)`
+```
+   if args.update_language_sampling > 0 and args.select_by_dds_epoch < 0 and (not args.data_actor_step_update):
+        num_reset = len(epoch_itr.frozen_batches) // (args.update_language_sampling*args.update_freq[0]+1)
+        datasize = args.update_language_sampling*args.update_freq[0]+1
+        if num_reset * datasize < len(epoch_itr.frozen_batches):
+            num_reset += 1
+    else:
+        num_reset = 1
+        datasize = -1
+```
+- 

@@ -71,6 +71,7 @@ def main(args, init_distributed=False):
     extra_state, epoch_itr, filtered_maxpos_indices = checkpoint_utils.load_checkpoint(args, trainer)
 
     # pretrain data actor
+    # only the language actor model can be pretrained
     if args.pretrain_data_actor and args.data_actor == 'lan' and args.data_actor_step_update:
         trainer.pretrain_data_actor()
 
@@ -120,7 +121,8 @@ def train(args, trainer, task, epoch_itr, generator=None, filtered_maxpos_indice
     max_update = args.max_update or math.inf
 
     # data selection: reset epoch iter to filter out unselected data
-    if epoch_itr.epoch == args.select_by_dds_epoch and args.select_by_dds_epoch > 0:
+    filter_data = epoch_itr.epoch % args.select_by_dds_epoch == 0
+    if filter_data and args.select_by_dds_epoch > 0:
         epoch_itr, _ = trainer.get_filtered_train_iterator(epoch_itr.epoch, filtered_maxpos_indices=filtered_maxpos_indices)
 
     if args.update_language_sampling > 0 and args.select_by_dds_epoch < 0 and (not args.data_actor_step_update):

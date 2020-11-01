@@ -252,6 +252,7 @@ def filter_by_data_actor(indices, dataset, data_actor, data_filter_percentage=-1
             any elements are filtered (default: False).
     """
     bins = 50
+    random_filter = True
     if trainer.args.random_data_filter:
         orig_data_size = len(indices)
         indices = np.array(indices)
@@ -270,11 +271,15 @@ def filter_by_data_actor(indices, dataset, data_actor, data_filter_percentage=-1
         print("Orignial data size={}; filtered data size={}".format(orig_data_size, len(indices)))
         indices.sort()
         return indices
-    elif trainer.args.random_data_filter_by_len:
+    # elif trainer.args.random_data_filter_by_len:
+    elif random_filter:
         orig_data_size = len(indices)
         indices = np.array(indices)
         selected = []
         interval = int(len(indices)/bins)
+        if interval == 0:
+            # too little data for the number of bins we defined
+            interval += 1
         start_idx, end_idx = 0, 0
         while end_idx < len(indices):
             end_idx = min(len(indices), start_idx + interval)
