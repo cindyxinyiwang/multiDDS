@@ -208,4 +208,29 @@ offset=reset_idx*(args.update_language_sampling*args.update_freq[0]+1)`
         num_reset = 1
         datasize = -1
 ```
-- 
+- use random filter on the data, train results are shown below:
+```
+model multilingual_transformer_iwslt_de_en, criterion LabelSmoothedCrossEntropyCriterion
+| num. model params: 39704608 (num. trained: 39704608)
+| training on 1 GPUs
+| max tokens per GPU = 600 and max sentences per GPU = None
+| no existing checkpoint found /export/b02/wtan/checkpoints/dds/ps-total/checkpoint_last.pt
+| loading train data for epoch 0
+| loaded 1022506 examples from: /export/b02/wtan/data-bin/ps-total/train.ps-en.ps
+| loaded 1022506 examples from: /export/b02/wtan/data-bin/ps-total/train.ps-en.en
+| /export/b02/wtan/data-bin/ps-total train ps-en 1022506 examples
+data sampling with temperature 1 is [1.]
+| WARNING: 24423 samples have invalid sizes and will be skipped, max_positions=OrderedDict([('ps-en', (150, 150))]), first few sample ids=[5038, 5039, 5040, 5041, 5042, 5043, 5044, 5045, 5046, 5047]
+| loading train data for epoch 0
+| loaded 1022506 examples from: /export/b02/wtan/data-bin/ps-total/train.ps-en.ps
+| loaded 1022506 examples from: /export/b02/wtan/data-bin/ps-total/train.ps-en.en
+| /export/b02/wtan/data-bin/ps-total train ps-en 1022506 examples
+data sampling with temperature 1 is [1.]
+| WARNING: 24423 samples have invalid sizes and will be skipped, max_positions=OrderedDict([('ps-en', (150, 150))]), first few sample ids=[5038, 5039, 5040, 5041, 5042, 5043, 5044, 5045, 5046, 5047]
+Orignial data size=998083; filtered data size=798477
+resetting at step 0
+/home/wtan12/multiDDS/fairseq/models/fairseq_model.py:276: UserWarning: FairseqModel is deprecated, please use FairseqEncoderDecoderModel or BaseFairseqModel instead
+  self.models = nn.ModuleDict({
+| epoch 001:    100 / 2605 loss=13.376, nll_loss=13.325, ppl=10264.34, wps=4111, ups=0, wpb=7146.832, bsz=311.426, num_updates=101, lr=5.14748e-06, gnorm=1.594, clip=0.000, oom=0.000, wall=210, train_wall=166, ps-en:loss=13.3762, ps-en:nll_loss=13.3254, ps-en:ntokens=7146.83, ps-en:nsentences=311.426, ps-en:sample_size=7146.83
+| epoch 001:    200 / 2605 loss=12.725, nll_loss=12.606, ppl=6233.21, wps=4095, ups=1, wpb=7177.458, bsz=309.871, num_updates=201, lr=1.0145e-05, gnorm=1.278, clip=0.000, oom=0.000, wall=387, train_wall=333, ps-en:loss=12.7253, ps-en:nll_loss=12.6058, ps-en:ntokens=7177.46, ps-en:nsentences=309.871, ps-en:sample_size=7177.46
+```

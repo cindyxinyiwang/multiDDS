@@ -110,7 +110,8 @@ def load_indexed_dataset(path, dictionary, dataset_impl=None, combine=False, def
         dataset_impl_k = dataset_impl
         if dataset_impl_k is None:
             dataset_impl_k = indexed_dataset.infer_dataset_impl(path_k)
-
+        # if not dataset_impl_k:
+        #     dataset_impl_k = 'raw'
         dataset = indexed_dataset.make_dataset(
             path_k,
             impl=dataset_impl_k or default,
