@@ -169,6 +169,9 @@ def train(args, trainer, task, epoch_itr, generator=None, filtered_maxpos_indice
                 else:
                     trainer.update_language_sampler(args)
 
+            # update the data selector
+            if args.select_by_dds_epoch > 0 and i % args.update_data_selector == 0:
+                trainer.update_data_selector(args)
 
             # log mid-epoch stats
             stats = get_training_stats(trainer)

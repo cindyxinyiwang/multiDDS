@@ -549,7 +549,99 @@ class Trainer(object):
         sim_list = sim_list/np.sum(sim_list)
         # set sampling distribution
         self.task.dataset('train').update_sampling_distribution(sim_list)
-    
+
+    def update_data_selector(self, args):
+        # TODO: still working on the code below
+        """Update RL agent for data selector """
+        # calculate gradient direction
+        # calculate dev grad
+        # Initialize dev data iterator
+        self.model.train()
+        self.criterion.train()
+        self.zero_grad()
+
+        sim_list = []
+        norm_list = []
+
+        optimizer = self.optimizer
+        data_actor = self.data_actor
+        data_optimizer = self.data_optimizer
+        # revise the code so that it at least work for one language pair
+        self.cur_data_actor_probs = [[]]
+
+        optimizer.clone_param()
+        # for each language pair in the multi-lingual model,
+        # we get the training gradient, and compare it with all the dev gradients
+        for i, key in enumerate(self.task.dataset('train').datasets.keys()):
+            # we don't work on multilingual datasets so this loop only has 1 itr
+            # for _ in range(self.args.loss_steps):
+            sample = self.task.dataset('train').get_sample_with_key(key)
+            sample = self._prepare_sample(sample)
+
+            # rename the parameter, seems to have bug in original code??
+            train_losses, sample_size, logging_output = self.task.train_step(
+                sample, self.model, self.criterion, optimizer)
+            optimizer.save_train_grad_t0()
+            self.zero_grad()
+            optimizer.add_grad(eta=0.001)
+            valid_samples = []
+            for j, valid_key in enumerate(self.task.dataset('valid').datasets.keys()):
+                valid_sample = self.task.dataset('valid').get_sample_with_key(valid_key)
+                valid_sample = self._prepare_sample(valid_sample)
+                # calculate sim
+                valid_losses, sample_size, logging_output = self.task.train_step(
+                    valid_sample, self.model, self.criterion, optimizer)
+                valid_samples.append(valid_sample)
+            sim, cur_cosine_norm, prev_cosine_norm = optimizer.get_grad_sim()
+            sim_list.append(sim)
+            norm_list.append(cur_cosine_norm)
+            self.zero_grad()
+
+            optimizer.switch_param()
+        optimizer.switch_param(clear_cache=True)
+        if args.pretrain_data_actor and not self.pretrained:
+            if self.args.feature_type == 'ones':
+                feature = torch.ones(1, len(self.task.dataset('train').datasets.keys()))
+            elif self.args.feature_type == 'valid_loss':
+                feature = torch.FloatTensor(valid_losses).view(1, -1)
+                feature = feature / feature.sum()
+            elif self.args.feature_type == 'train_loss':
+                feature = torch.FloatTensor(train_losses).view(1, -1)
+                feature = feature / feature.sum()
+            else:
+                print("feature not supported")
+                exit(1)
+            self.pretrained = True
+            self.pretrain_data_actor(feature)
+
+        # feature has size #lang-pairs, become a updated prob distribution
+        feature = torch.ones(1, len(self.task.dataset('train').datasets.keys()))
+        grad_scale = torch.FloatTensor(sim_list).view(1, -1)
+
+        if self.cuda:
+            feature = feature.cuda()
+            grad_scale = grad_scale.cuda()
+        for _ in range(self.args.data_actor_optim_step):
+            a_logits = data_actor.forward(feature)
+            loss = -torch.nn.functional.log_softmax(a_logits, dim=-1)
+            loss = (loss * grad_scale).sum()
+            loss.backward()
+            data_optimizer.step()
+            data_optimizer.zero_grad()
+        with torch.no_grad():
+            a_logits = data_actor.forward(feature)
+            prob = torch.nn.functional.softmax(a_logits, dim=-1)
+            sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
+
+            self.cur_data_actor_probs[0] = sim_list
+
+        self.cur_data_actor_probs = np.array(self.cur_data_actor_probs)
+        sim_list = self.cur_data_actor_probs.sum(axis=0)
+        sim_list = sim_list / np.sum(sim_list)
+        # set sampling distribution
+        # TODO modify the function below (maybe simply delete it?)
+        self.task.dataset('train').update_sampling_distribution(sim_list)
+
     def pretrain_data_actor(self, feature=None):
         """pretrain the distribution to sample languages """
         if self.args.layerwise_dds:

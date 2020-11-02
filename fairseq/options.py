@@ -324,6 +324,8 @@ def add_data_filter_args(parser):
                        help="percentage of data to filter out")
     group.add_argument("--select-by-dds-epoch", default=-1, type=int, metavar="SRCTAU",
                        help="the epoch to start filter data")
+    group.add_argument("--update-data-selector", default=-1, type=int, metavar="SRCTAU",
+                       help="update the data actor that filters data")
     group.add_argument("--random-data-filter", action="store_true",
                        help="the epoch to start filter data")
     group.add_argument("--random-data-filter-by-len", action="store_true",
