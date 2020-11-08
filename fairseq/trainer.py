@@ -18,6 +18,8 @@ import numpy as np
 import torch
 
 from fairseq import checkpoint_utils, distributed_utils, models, optim, utils
+from fairseq.data import data_utils
+from fairseq.data.data_utils import batch_by_size
 from fairseq.meters import AverageMeter, StopwatchMeter, TimeMeter
 from fairseq.optim import lr_scheduler
 from fairseq.models import BaseActor, AveEmbActor, LanguageActor, TransformerActor
@@ -551,6 +553,7 @@ class Trainer(object):
         self.task.dataset('train').update_sampling_distribution(sim_list)
 
     def update_data_selector(self, args):
+        from fairseq.data import iterators
         # TODO: still working on the code below
         """Update RL agent for data selector """
         # calculate gradient direction
@@ -599,48 +602,84 @@ class Trainer(object):
 
             optimizer.switch_param()
         optimizer.switch_param(clear_cache=True)
-        if args.pretrain_data_actor and not self.pretrained:
-            if self.args.feature_type == 'ones':
-                feature = torch.ones(1, len(self.task.dataset('train').datasets.keys()))
-            elif self.args.feature_type == 'valid_loss':
-                feature = torch.FloatTensor(valid_losses).view(1, -1)
-                feature = feature / feature.sum()
-            elif self.args.feature_type == 'train_loss':
-                feature = torch.FloatTensor(train_losses).view(1, -1)
-                feature = feature / feature.sum()
-            else:
-                print("feature not supported")
-                exit(1)
-            self.pretrained = True
-            self.pretrain_data_actor(feature)
+        dataset = self.task.dataset('valid')
+        max_tokens = 4800
+        max_sentences = 100
 
-        # feature has size #lang-pairs, become a updated prob distribution
-        feature = torch.ones(1, len(self.task.dataset('train').datasets.keys()))
+        seed = 1
+        with data_utils.numpy_seed(seed):
+            indices = dataset.ordered_indices()
+        batch_sampler = batch_by_size(
+            indices, dataset.num_tokens, max_tokens=max_tokens, max_sentences=max_sentences,
+        )
+        itr = iterators.EpochBatchIterator(
+            dataset=dataset,
+            collate_fn=dataset.collater,
+            batch_sampler=batch_sampler,
+        ).next_epoch_itr(shuffle=False)
         grad_scale = torch.FloatTensor(sim_list).view(1, -1)
-
-        if self.cuda:
-            feature = feature.cuda()
-            grad_scale = grad_scale.cuda()
         for _ in range(self.args.data_actor_optim_step):
-            a_logits = data_actor.forward(feature)
-            loss = -torch.nn.functional.log_softmax(a_logits, dim=-1)
-            loss = (loss * grad_scale).sum()
-            loss.backward()
-            data_optimizer.step()
-            data_optimizer.zero_grad()
-        with torch.no_grad():
-            a_logits = data_actor.forward(feature)
-            prob = torch.nn.functional.softmax(a_logits, dim=-1)
-            sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
+            for i, sample in enumerate(itr):
+                sample = self._prepare_sample(sample)
+                sample = list(sample.values())[0]
+                # a_logits = data_actor(sample).data.cpu().numpy()
+                a_logits = data_actor(sample)
+                loss = -torch.nn.functional.log_softmax(a_logits, dim=-1)
+                print(loss)
+                loss = (loss * grad_scale).sum()
+                loss.backward()
+                data_optimizer.step()
+                data_optimizer.zero_grad()
+                # idx_start = idx_end
+                # idx_end = idx_start + score.shape[0]
+                # scores[idx_start:idx_end] = score.ravel()
+                # ids[idx_start:idx_end] = sample['id'].data.cpu().numpy().ravel()
 
-            self.cur_data_actor_probs[0] = sim_list
 
-        self.cur_data_actor_probs = np.array(self.cur_data_actor_probs)
-        sim_list = self.cur_data_actor_probs.sum(axis=0)
-        sim_list = sim_list / np.sum(sim_list)
-        # set sampling distribution
-        # TODO modify the function below (maybe simply delete it?)
-        self.task.dataset('train').update_sampling_distribution(sim_list)
+        # if args.pretrain_data_actor and not self.pretrained:
+        #     if self.args.feature_type == 'ones':
+        #         feature = torch.ones(1, len(self.task.dataset('train').datasets.keys()))
+        #     elif self.args.feature_type == 'valid_loss':
+        #         feature = torch.FloatTensor(valid_losses).view(1, -1)
+        #         feature = feature / feature.sum()
+        #     elif self.args.feature_type == 'train_loss':
+        #         feature = torch.FloatTensor(train_losses).view(1, -1)
+        #         feature = feature / feature.sum()
+        #     else:
+        #         print("feature not supported")
+        #         exit(1)
+        #     self.pretrained = True
+        #     self.pretrain_data_actor(feature)
+        #
+        # # feature has size #lang-pairs, become a updated prob distribution
+        # feature = torch.ones(1, len(self.task.dataset('train').datasets.keys()))
+
+        #
+        # if self.cuda:
+        #     feature = feature.cuda()
+        #     grad_scale = grad_scale.cuda()
+        # for _ in range(self.args.data_actor_optim_step):
+        #     a_logits = data_actor.forward(feature)
+        #     loss = -torch.nn.functional.log_softmax(a_logits, dim=-1)
+        #     loss = (loss * grad_scale).sum()
+        #     loss.backward()
+        #     data_optimizer.step()
+        #     data_optimizer.zero_grad()
+
+        # TODO: this non-update part should not be necessary for data selector?
+        # with torch.no_grad():
+        #     a_logits = data_actor.forward(feature)
+        #     prob = torch.nn.functional.softmax(a_logits, dim=-1)
+        #     sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
+
+        #     self.cur_data_actor_probs[0] = sim_list
+        #
+        # self.cur_data_actor_probs = np.array(self.cur_data_actor_probs)
+        # sim_list = self.cur_data_actor_probs.sum(axis=0)
+        # sim_list = sim_list / np.sum(sim_list)
+        # # set sampling distribution
+        # # TODO modify the function below (maybe simply delete it?)
+        # self.task.dataset('train').update_sampling_distribution(sim_list)
 
     def pretrain_data_actor(self, feature=None):
         """pretrain the distribution to sample languages """
