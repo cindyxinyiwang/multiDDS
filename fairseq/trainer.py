@@ -604,9 +604,8 @@ class Trainer(object):
         optimizer.switch_param(clear_cache=True)
         grad_scale = torch.FloatTensor(sim_list).view(1, -1)
         for _ in range(self.args.data_actor_optim_step):
-            a_logits = data_actor(sample['src-trg'])
+            a_logits = data_actor(sample['ps-en'])
             loss = -torch.nn.functional.log_softmax(a_logits, dim=0)
-            print(loss)
             loss = (loss * grad_scale).sum()
             loss.backward()
             data_optimizer.step()
