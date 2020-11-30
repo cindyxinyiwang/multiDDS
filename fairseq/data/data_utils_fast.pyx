@@ -46,10 +46,10 @@ cpdef list batch_by_size_fast(
         sample_lens.append(num_tokens)
         sample_len = max(sample_len, num_tokens)
 
-        assert sample_len <= max_tokens, (
-            "sentence at index {} of size {} exceeds max_tokens "
-            "limit of {}!".format(idx, sample_len, max_tokens)
-        )
+        # assert sample_len <= max_tokens, (
+        #     "sentence at index {} of size {} exceeds max_tokens "
+        #     "limit of {}!".format(idx, sample_len, max_tokens)
+        # )
         num_tokens = (len(batch) + 1) * sample_len
 
         if _is_batch_full(batch, num_tokens, max_tokens, max_sentences):
