@@ -253,7 +253,7 @@ def filter_by_data_actor(indices, dataset, data_actor, data_filter_percentage=-1
             any elements are filtered (default: False).
     """
     bins = 50
-    random_filter = True
+    random_filter = False
     if trainer.args.random_data_filter:
         orig_data_size = len(indices)
         indices = np.array(indices)
@@ -295,7 +295,8 @@ def filter_by_data_actor(indices, dataset, data_actor, data_filter_percentage=-1
     else:
         # calculate data actor score
         # create mini-batches with given size constraints
-        max_tokens = 4800
+        print("Use RL agent to filter data")
+        max_tokens = 600
         max_sentences = 100
         batch_sampler = batch_by_size(
             indices, dataset.num_tokens, max_tokens=max_tokens, max_sentences=max_sentences,
@@ -326,18 +327,6 @@ def filter_by_data_actor(indices, dataset, data_actor, data_filter_percentage=-1
         # argsort is ascending order
         preserved_indices = np.argsort(scores)[int(len(indices)*data_filter_percentage):]
         indices = np.array(ids)[preserved_indices]
-
-        #score_indices = np.argsort(scores)
-        #selected = []
-        #interval = int(len(scores)/bins)
-        #start_idx, end_idx = 0, 0
-        #while end_idx < len(score_indices):
-        #    end_idx = min(len(scores), start_idx + interval)
-        #    current_indices = score_indices[start_idx:end_idx]
-        #    np.random.shuffle(current_indices)
-        #    selected.extend(current_indices[int(len(current_indices)*data_filter_percentage):].tolist())
-        #    start_idx = end_idx
-        #indices = np.array(selected)
         indices.sort()
         print("Orignial data size={}; filtered data size={}".format(len(ids), len(indices)))
         return indices

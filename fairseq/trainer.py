@@ -606,30 +606,12 @@ class Trainer(object):
         if self.cuda:
             grad_scale = grad_scale.cuda()
         for _ in range(self.args.data_actor_optim_step):
-            a_logits = data_actor(sample['ps-en'])
+            a_logits = data_actor(sample['src-trg'])
             loss = -torch.nn.functional.log_softmax(a_logits, dim=0)
             loss = (loss * grad_scale).sum()
             loss.backward()
             data_optimizer.step()
             data_optimizer.zero_grad()
-
-
-
-
-        # TODO: this non-update part should not be necessary for data selector?
-        # with torch.no_grad():
-        #     a_logits = data_actor.forward(feature)
-        #     prob = torch.nn.functional.softmax(a_logits, dim=-1)
-        #     sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
-
-        #     self.cur_data_actor_probs[0] = sim_list
-        #
-        # self.cur_data_actor_probs = np.array(self.cur_data_actor_probs)
-        # sim_list = self.cur_data_actor_probs.sum(axis=0)
-        # sim_list = sim_list / np.sum(sim_list)
-        # # set sampling distribution
-        # # TODO modify the function below (maybe simply delete it?)
-        # self.task.dataset('train').update_sampling_distribution(sim_list)
 
     def pretrain_data_actor(self, feature=None):
         """pretrain the distribution to sample languages """

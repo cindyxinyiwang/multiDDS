@@ -90,7 +90,6 @@ def main(args, init_distributed=False):
     while lr > args.min_lr and epoch_itr.epoch < max_epoch and trainer.get_num_updates() < max_update:
         # train for one epoch
         epoch_itr = train(args, trainer, task, epoch_itr, generator, filtered_maxpos_indices)
-        #trainer.update_language_sampler(args)
 
         if not args.disable_validation and epoch_itr.epoch % args.validate_interval == 0:
             valid_losses = validate(args, trainer, task, epoch_itr, valid_subsets, generator)
