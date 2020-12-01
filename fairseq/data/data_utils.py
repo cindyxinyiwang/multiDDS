@@ -329,7 +329,8 @@ def filter_by_data_actor(indices, dataset, data_actor, data_filter_percentage=-1
         indices = np.array(ids)[preserved_indices]
         indices.sort()
         print("Orignial data size={}; filtered data size={}".format(len(ids), len(indices)))
-        return indices
+        return batch_by_size(indices, dataset.num_tokens, max_tokens=max_tokens, max_sentences=max_sentences)
+        # return indices
 
 
 def batch_by_size(
@@ -351,8 +352,10 @@ def batch_by_size(
         required_batch_size_multiple (int, optional): require batch size to
             be a multiple of N (default: 1).
     """
+
     try:
         from fairseq.data.data_utils_fast import batch_by_size_fast
+        # from data_utils_fast import batch_by_size_fast
     except ImportError:
         raise ImportError(
             'Please build Cython components with: `pip install --editable .` '
