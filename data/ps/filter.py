@@ -28,21 +28,17 @@ def main():
     src_output = []
     trg_output = []
     for idx, item in enumerate(src_data.split('\n')):
-        if idx % 5 == 0:
-            continue # filter every fith line
-        else:
+        if idx % 10 == 0:
             src_output.append(item)
     for idx, item in enumerate(trg_data.split('\n')):
-        if idx % 5 == 0:
-            continue # filter every fith line
-        else:
+        if idx % 10 == 0:
             trg_output.append(item)
-    temp = "\n".join(src_output)
 
-    # write into output file
-    with open('filter.ps', 'w') as f:
+    # print(len(src_output))
+    # # write into output file
+    with open('zh_en.zh', 'w') as f:
         f.write("\n".join(src_output))
-    with open('filter.en', 'w') as f:
+    with open('zh_en.en', 'w') as f:
         f.write("\n".join(trg_output))
 
 

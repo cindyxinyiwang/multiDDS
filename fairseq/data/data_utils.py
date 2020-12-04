@@ -313,7 +313,7 @@ def filter_by_data_actor(indices, dataset, data_actor, data_filter_percentage=-1
         for i, sample in enumerate(itr):
             sample = trainer._prepare_sample(sample)
             sample = list(sample.values())[0]
-            #print(sample)
+
             # sample is a batch, use src & trg in this batch to predict how likely we choose this data
             # score should be size [batch_size], use the score to order the datapoints in this batch
 
@@ -329,12 +329,16 @@ def filter_by_data_actor(indices, dataset, data_actor, data_filter_percentage=-1
             # print("")
         # argsort is ascending order
         preserved_indices = np.argsort(scores)[int(len(indices)*data_filter_percentage):]
+        worst_id = np.array(ids)[np.argsort(scores)[:10]]
+        best_id = np.array(ids)[np.argsort(scores)[-10:]]
+        print("worst sentence id: ", worst_id)
+        print("best sentence id: ", best_id)
+
         filter_indices = np.array(ids)[preserved_indices]
         filter_indices.sort()
         filter_indices = np.array([item for item in filter_indices if item in indices])       
         print("Orignial data size={}; filtered data size={}".format(len(ids), len(filter_indices)))
         return batch_by_size(filter_indices, dataset.num_tokens, max_tokens=max_tokens, max_sentences=max_sentences)
-        # return indices
 
 
 def batch_by_size(
