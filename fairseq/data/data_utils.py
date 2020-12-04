@@ -324,12 +324,16 @@ def filter_by_data_actor(indices, dataset, data_actor, data_filter_percentage=-1
             idx_end = idx_start + score.shape[0]
             scores[idx_start:idx_end] = score.ravel()
             ids[idx_start:idx_end] = sample['id'].data.cpu().numpy().ravel()
+            # print(ids[idx_start:idx_end])
+            # print(scores[idx_start:idx_end])
+            # print("")
         # argsort is ascending order
         preserved_indices = np.argsort(scores)[int(len(indices)*data_filter_percentage):]
-        indices = np.array(ids)[preserved_indices]
-        indices.sort()
-        print("Orignial data size={}; filtered data size={}".format(len(ids), len(indices)))
-        return batch_by_size(indices, dataset.num_tokens, max_tokens=max_tokens, max_sentences=max_sentences)
+        filter_indices = np.array(ids)[preserved_indices]
+        filter_indices.sort()
+        filter_indices = np.array([item for item in filter_indices if item in indices])       
+        print("Orignial data size={}; filtered data size={}".format(len(ids), len(filter_indices)))
+        return batch_by_size(filter_indices, dataset.num_tokens, max_tokens=max_tokens, max_sentences=max_sentences)
         # return indices
 
 
