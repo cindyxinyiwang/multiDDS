@@ -124,82 +124,82 @@ def train(args, trainer, task, epoch_itr, generator=None, filtered_maxpos_indice
     if filter_data and args.select_by_dds_epoch > 0:
         epoch_itr, _ = trainer.get_filtered_train_iterator(epoch_itr.epoch, filtered_maxpos_indices=filtered_maxpos_indices)
 
-    if args.update_language_sampling > 0 and args.select_by_dds_epoch < 0 and (not args.data_actor_step_update):
-        num_reset = len(epoch_itr.frozen_batches) // (args.update_language_sampling*args.update_freq[0]+1)
-        datasize = args.update_language_sampling*args.update_freq[0]+1
-        if num_reset * datasize < len(epoch_itr.frozen_batches):
-            num_reset += 1
-    else:
-        num_reset = 1
-        datasize = -1
-    for reset_idx in range(num_reset):
-        print("resetting at step", reset_idx)
+    # if args.update_language_sampling > 0 and args.select_by_dds_epoch < 0 and (not args.data_actor_step_update):
+    #     num_reset = len(epoch_itr.frozen_batches) // (args.update_language_sampling*args.update_freq[0]+1)
+    #     datasize = args.update_language_sampling*args.update_freq[0]+1
+    #     if num_reset * datasize < len(epoch_itr.frozen_batches):
+    #         num_reset += 1
+    # else:
+    #     num_reset = 1
+    #     datasize = -1
+    # for reset_idx in range(num_reset):
+    #     print("resetting at step", reset_idx)
         # Initialize data iterator
-        itr = epoch_itr.next_epoch_itr(
-            fix_batches_to_gpus=args.fix_batches_to_gpus,
-            shuffle=(epoch_itr.epoch >= args.curriculum),
-            offset=reset_idx*(args.update_language_sampling*args.update_freq[0]+1),
-            datasize=datasize,
-        )
-        itr = iterators.GroupedIterator(itr, update_freq)
-        progress = progress_bar.build_progress_bar(
-            args, itr, epoch_itr.epoch, no_progress_bar='simple',
-        )
+    itr = epoch_itr.next_epoch_itr(
+        fix_batches_to_gpus=args.fix_batches_to_gpus,
+        shuffle=(epoch_itr.epoch >= args.curriculum),
+        offset=0,
+        datasize=-1,
+    )
+    itr = iterators.GroupedIterator(itr, update_freq)
+    progress = progress_bar.build_progress_bar(
+        args, itr, epoch_itr.epoch, no_progress_bar='simple',
+    )
 
-        for i, samples in enumerate(progress, start=epoch_itr.iterations_in_epoch):
-            #print(samples)
-            if args.extra_data_actor == 'ave_emb':
-                update_actor = (i % args.extra_update_language_sampling == 0)
-            elif args.data_actor_step_update:
-                update_actor = (i % args.update_language_sampling == 0)
-            elif args.data_actor == 'lan' and args.data_actor_step_update:
-                update_actor = (i % args.update_language_sampling == 0)
+    for i, samples in enumerate(progress, start=epoch_itr.iterations_in_epoch):
+        #print(samples)
+
+        if ( epoch_itr.epoch > args.select_by_dds_epoch and args.select_by_dds_epoch > 0): update_actor = False
+        log_output = trainer.train_step(samples, update_actor=update_actor)
+        if log_output is None:
+            continue
+        # if args.extra_data_actor == 'ave_emb':
+        #     update_actor = (i % args.extra_update_language_sampling == 0)
+        # elif args.data_actor_step_update:
+        #     update_actor = (i % args.update_language_sampling == 0)
+        # elif args.data_actor == 'lan' and args.data_actor_step_update:
+        #     update_actor = (i % args.update_language_sampling == 0)
+        # else:
+        #     update_actor = False
+        # update sampling distribution
+        # if args.update_language_sampling > 0 and i % args.update_language_sampling == 0 and args.data_actor != 'ave_emb' and not args.data_actor_step_update:
+        #     if args.data_actor_multilin:
+        #         trainer.update_language_sampler_multilin(args, epoch=epoch_itr.epoch)
+        #     else:
+        #         trainer.update_language_sampler(args)
+
+        # update the data selector
+        if args.select_by_dds_epoch > 0 and i % args.update_data_selector == 0:
+            trainer.update_data_selector(args)
+
+        # log mid-epoch stats
+        stats = get_training_stats(trainer)
+        for k, v in log_output.items():
+            if k in ['loss', 'nll_loss', 'ntokens', 'nsentences', 'sample_size']:
+                continue  # these are already logged above
+            if 'loss' in k or k == 'accuracy':
+                extra_meters[k].update(v, log_output['sample_size'])
             else:
-                update_actor = False
-            if ( epoch_itr.epoch > args.select_by_dds_epoch and args.select_by_dds_epoch > 0): update_actor = False
-            log_output = trainer.train_step(samples, update_actor=update_actor)
-            if log_output is None:
-                continue
+                extra_meters[k].update(v)
+            stats[k] = extra_meters[k].avg
+        progress.log(stats, tag='train', step=stats['num_updates'])
 
-            # update sampling distribution
-            if args.update_language_sampling > 0 and i % args.update_language_sampling == 0 and args.data_actor != 'ave_emb' and not args.data_actor_step_update:
-                if args.data_actor_multilin:
-                    trainer.update_language_sampler_multilin(args, epoch=epoch_itr.epoch)
-                else:
-                    trainer.update_language_sampler(args)
+        # ignore the first mini-batch in words-per-second calculation
+        if i == 0:
+            trainer.get_meter('wps').reset()
 
-            # update the data selector
-            if args.select_by_dds_epoch > 0 and i % args.update_data_selector == 0:
-                trainer.update_data_selector(args)
+        num_updates = trainer.get_num_updates()
+        if (
+            not args.disable_validation
+            and args.save_interval_updates > 0
+            and num_updates % args.save_interval_updates == 0
+            and num_updates > 0
+        ):
+            valid_losses = validate(args, trainer, task, epoch_itr, valid_subsets, generator)
+            checkpoint_utils.save_checkpoint(args, trainer, epoch_itr, valid_losses[0])
 
-            # log mid-epoch stats
-            stats = get_training_stats(trainer)
-            for k, v in log_output.items():
-                if k in ['loss', 'nll_loss', 'ntokens', 'nsentences', 'sample_size']:
-                    continue  # these are already logged above
-                if 'loss' in k or k == 'accuracy':
-                    extra_meters[k].update(v, log_output['sample_size'])
-                else:
-                    extra_meters[k].update(v)
-                stats[k] = extra_meters[k].avg
-            progress.log(stats, tag='train', step=stats['num_updates'])
-
-            # ignore the first mini-batch in words-per-second calculation
-            if i == 0:
-                trainer.get_meter('wps').reset()
-
-            num_updates = trainer.get_num_updates()
-            if (
-                not args.disable_validation
-                and args.save_interval_updates > 0
-                and num_updates % args.save_interval_updates == 0
-                and num_updates > 0
-            ):
-                valid_losses = validate(args, trainer, task, epoch_itr, valid_subsets, generator)
-                checkpoint_utils.save_checkpoint(args, trainer, epoch_itr, valid_losses[0])
-
-            if num_updates >= max_update:
-                break
+        if num_updates >= max_update:
+            break
 
     # log end-of-epoch stats
     stats = get_training_stats(trainer)
