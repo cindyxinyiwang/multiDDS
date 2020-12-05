@@ -16,6 +16,7 @@ import sys
 import numpy as np
 
 import torch
+import torch.nn as nn
 
 from fairseq import checkpoint_utils, distributed_utils, models, optim, utils
 from fairseq.data import data_utils
@@ -612,6 +613,43 @@ class Trainer(object):
             loss.backward()
             data_optimizer.step()
             data_optimizer.zero_grad()
+
+    def pretrain_LASER(self, laser_file, epoch_itr) -> None:
+        data_actor = self.data_actor
+        # read in laser score and store in a numpy array
+        with open(laser_file, 'r') as f:
+            data = f.read()
+        laser_score = []
+        for i, item in enumerate(data.split('\n')):
+            laser_score.append(item)
+        laser_score.pop() # ignore the last line which is empty
+        laser_score = np.array(laser_score).astype(float)
+        itr = epoch_itr.next_epoch_itr(
+            fix_batches_to_gpus=False,
+            shuffle=False
+        )
+        running_loss = 0
+        for i, sample in enumerate(itr):
+            sample = self._prepare_sample(sample)
+            sample = list(sample.values())[0]
+
+            loss = nn.MSELoss()
+            out = data_actor(sample)
+            truth = laser_score[sample['id'].data.cpu().numpy().ravel()]
+            truth = torch.Tensor(truth).cuda()
+            # Calculate MSE as the loss between model prediction and the expected label
+            output = loss(out, truth)
+
+            output.backward()
+            self.data_optimizer.step()
+            running_loss += float(output)
+            self.data_optimizer.zero_grad()
+            if i % 500:
+                print("loss at step {}: {}".format(i, running_loss/500))
+                running_loss = 0
+        print('LASER Pretrain Finished')
+
+
 
     def pretrain_data_actor(self, feature=None):
         """pretrain the distribution to sample languages """

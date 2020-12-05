@@ -72,8 +72,9 @@ def main(args, init_distributed=False):
 
     # pretrain data actor
     # only the language actor model can be pretrained
-    if args.pretrain_data_actor and args.data_actor == 'lan' and args.data_actor_step_update:
-        trainer.pretrain_data_actor()
+    if args.pretrain_data_actor and args.data_actor == 'ave':
+        # pretrain the agent with LASER score
+        trainer.pretrain_LASER('en-ps.laser-score', epoch_itr)
 
     # Train until the learning rate gets too small
     max_epoch = args.max_epoch or math.inf

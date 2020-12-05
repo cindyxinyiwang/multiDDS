@@ -154,6 +154,7 @@ class LSTMActor(torch.nn.Module):
             score = torch.exp(self.project_out(inp))
         return score 
 
+
 class TransformerActor(torch.nn.Module):
     """Transformer based actor"""
     def __init__(self, args, task):
