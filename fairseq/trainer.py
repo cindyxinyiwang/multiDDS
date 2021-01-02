@@ -456,7 +456,6 @@ class Trainer(object):
             sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
         self.task.dataset('train').update_sampling_distribution(sim_list)
 
-
     def update_language_sampler(self, args):
         """Update the distribution to sample languages """
         # calculate gradient direction
@@ -630,15 +629,19 @@ class Trainer(object):
             shuffle=False
         )
         running_loss = 0
+        sample_len = 0
         for i, sample in enumerate(itr):
             sample = self._prepare_sample(sample)
             sample = list(sample.values())[0]
-
             loss = nn.MSELoss()
             out = data_actor(sample)
+            out = out.squeeze(1)
+            sample_len += len(out)
             truth = laser_score[sample['id'].data.cpu().numpy().ravel()]
-            truth = torch.Tensor(truth).cuda()
+            # truth = torch.Tensor(truth).cuda()
+            truth = torch.Tensor(truth)
             # Calculate MSE as the loss between model prediction and the expected label
+            # print(truth, out)
             output = loss(out, truth)
 
             output.backward()
@@ -648,9 +651,8 @@ class Trainer(object):
             if i % 500:
                 print("loss at step {}: {}".format(i, running_loss/500))
                 running_loss = 0
+        print('Pretrain on {} samples'.format(sample_len))
         print('LASER Pretrain Finished')
-
-
 
     def pretrain_data_actor(self, feature=None):
         """pretrain the distribution to sample languages """

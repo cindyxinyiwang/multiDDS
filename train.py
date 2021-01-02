@@ -72,12 +72,14 @@ def main(args, init_distributed=False):
 
     # pretrain data actor
     # only the language actor model can be pretrained
-    pretrain = False # temp bool for test purpose
+    pretrain = True # temp bool for test purpose
     if pretrain and args.pretrain_data_actor and args.data_actor == 'ave':
         # pretrain the agent with LASER score
-        trainer.pretrain_LASER('en-ps.laser-score', epoch_itr)
+        path = '/home/wtan12/multiDDS/'
+        trainer.pretrain_LASER(path+'en-ps.laser-score', epoch_itr)
+        return
 
-    compare_laser = True
+    compare_laser = False
     if compare_laser:
         epoch_itr, indices = trainer.get_train_iterator(1)
         print('Number of Indices: ', len(indices))
