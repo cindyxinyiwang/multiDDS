@@ -75,10 +75,10 @@ def main(args, init_distributed=False):
     pretrain = True # temp bool for test purpose
     if pretrain and args.pretrain_data_actor and args.data_actor == 'ave':
         # pretrain the agent with LASER score
-        epoch_itr, indices = trainer.get_train_iterator(1)
+        # epoch_itr, indices = trainer.get_train_iterator(1)
         path = '/home/wtan12/multiDDS/'
         trainer.pretrain_LASER(path+'en-ps.laser-score', epoch_itr)
-        return
+        # return
 
     compare_laser = False
     if compare_laser:
