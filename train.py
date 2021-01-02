@@ -16,7 +16,7 @@ import torch
 
 from fairseq import bleu
 from fairseq import checkpoint_utils, distributed_utils, options, progress_bar, tasks, utils
-from fairseq.data import iterators
+from fairseq.data import iterators, data_utils
 from fairseq.trainer import Trainer
 from fairseq.meters import AverageMeter, StopwatchMeter
 
@@ -72,9 +72,46 @@ def main(args, init_distributed=False):
 
     # pretrain data actor
     # only the language actor model can be pretrained
-    if args.pretrain_data_actor and args.data_actor == 'ave':
+    pretrain = False # temp bool for test purpose
+    if pretrain and args.pretrain_data_actor and args.data_actor == 'ave':
         # pretrain the agent with LASER score
         trainer.pretrain_LASER('en-ps.laser-score', epoch_itr)
+
+    compare_laser = True
+    if compare_laser:
+        # seed = 1
+        # with data_utils.numpy_seed(seed):
+        #     task.dataset
+        #     indices = .ordered_indices()
+        scores = collections.defaultdict(float)
+        # compare with laser label using R^2 Score, only used after model is trained
+        itr = epoch_itr.next_epoch_itr(fix_batches_to_gpus=False, shuffle=False)
+        data_actor = trainer.data_actor
+        for i, sample in enumerate(itr):
+            sample = trainer._prepare_sample(sample)
+            sample = list(sample.values())[0]
+            score = data_actor(sample).cpu().detach().numpy().tolist()
+            indices = sample['id'].data.cpu().numpy().ravel().tolist()
+            for k, v in zip(indices, score):
+                scores[k] = float(v[0])
+
+        scores = sorted(scores.items(), key=lambda x:x[0])
+        print('Number of Indices in Scoring file: ', len(scores))
+        with open('en-ps.laser-score', 'r') as r:
+            data = r.read()
+        laser_score = []
+        for i, item in enumerate(data.split('\n')):
+            laser_score.append(item)
+        laser_score.pop()
+        r2 = 0.0
+        with open('en-ps.dds_score', 'w') as f:
+            for k, v in scores:
+                f.write(str(v)+'\n')
+                truth = float(laser_score[k])
+                r2 += (truth-v)**2
+        print('R2 Score compared to LASER file: ', r2)
+        return
+
 
     # Train until the learning rate gets too small
     max_epoch = args.max_epoch or math.inf
@@ -150,10 +187,6 @@ def train(args, trainer, task, epoch_itr, generator=None, filtered_maxpos_indice
     for i, samples in enumerate(progress, start=epoch_itr.iterations_in_epoch):
         #print(samples)
 
-        if ( epoch_itr.epoch > args.select_by_dds_epoch and args.select_by_dds_epoch > 0): update_actor = False
-        log_output = trainer.train_step(samples, update_actor=update_actor)
-        if log_output is None:
-            continue
         # if args.extra_data_actor == 'ave_emb':
         #     update_actor = (i % args.extra_update_language_sampling == 0)
         # elif args.data_actor_step_update:
@@ -168,6 +201,12 @@ def train(args, trainer, task, epoch_itr, generator=None, filtered_maxpos_indice
         #         trainer.update_language_sampler_multilin(args, epoch=epoch_itr.epoch)
         #     else:
         #         trainer.update_language_sampler(args)
+
+        if ( epoch_itr.epoch > args.select_by_dds_epoch and args.select_by_dds_epoch > 0): update_actor = False
+        update_actor=False
+        log_output = trainer.train_step(samples, update_actor=update_actor)
+        if log_output is None:
+            continue
 
         # update the data selector
         if args.select_by_dds_epoch > 0 and i % args.update_data_selector == 0:
