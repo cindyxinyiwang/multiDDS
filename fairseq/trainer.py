@@ -648,7 +648,7 @@ class Trainer(object):
             self.data_optimizer.step()
             running_loss += float(output)
             self.data_optimizer.zero_grad()
-            if i % 500:
+            if i % 2000:
                 print("loss at step {}: {}".format(i, running_loss/500))
                 running_loss = 0
         print('Pretrain on {} samples'.format(sample_len))
