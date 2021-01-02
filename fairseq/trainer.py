@@ -607,7 +607,8 @@ class Trainer(object):
         if self.cuda:
             grad_scale = grad_scale.cuda()
         for _ in range(self.args.data_actor_optim_step):
-            a_logits = data_actor(sample['src-trg'])
+            a_logits = data_actor(sample[self.task.model_lang_pairs[0]])
+            # a_logits = data_actor(sample['src-trg'])
             loss = -torch.nn.functional.log_softmax(a_logits, dim=0)
             loss = (loss * grad_scale).sum()
             loss.backward()

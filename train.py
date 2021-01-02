@@ -77,7 +77,7 @@ def main(args, init_distributed=False):
         # pretrain the agent with LASER score
         trainer.pretrain_LASER('en-ps.laser-score', epoch_itr)
 
-    compare_laser = True
+    compare_laser = False
     if compare_laser:
         # seed = 1
         # with data_utils.numpy_seed(seed):
@@ -110,7 +110,7 @@ def main(args, init_distributed=False):
                 truth = float(laser_score[k])
                 r2 += (truth-v)**2
         print('R2 Score compared to LASER file: ', r2)
-        return
+
 
 
     # Train until the learning rate gets too small
