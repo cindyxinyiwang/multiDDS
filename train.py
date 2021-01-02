@@ -101,19 +101,21 @@ def main(args, init_distributed=False):
 
         scores = sorted(scores.items(), key=lambda x: x[0])
         print('Number of Indices in Scoring file: ', len(scores))
-        with open('en-ps.laser-score', 'r') as r:
+        path = '/home/wtan12/multiDDS/'
+        with open(path+'en-ps.laser-score', 'r') as r:
             data = r.read()
         laser_score = []
         for i, item in enumerate(data.split('\n')):
             laser_score.append(item)
         laser_score.pop()
         r2 = 0.0
-        with open('en-ps.dds_score', 'w') as f:
+        with open(path+'en-ps.dds_score', 'w') as f:
             for k, v in scores:
                 f.write(str(v)+'\n')
                 truth = float(laser_score[k])
                 r2 += (truth-v)**2
         print('R2 Score compared to LASER file: ', r2)
+        return
 
 
 
