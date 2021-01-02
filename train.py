@@ -77,16 +77,20 @@ def main(args, init_distributed=False):
         # pretrain the agent with LASER score
         trainer.pretrain_LASER('en-ps.laser-score', epoch_itr)
 
-    compare_laser = False
+    compare_laser = True
     if compare_laser:
-        # seed = 1
-        # with data_utils.numpy_seed(seed):
-        #     task.dataset
-        #     indices = .ordered_indices()
+        epoch_itr, indices = trainer.get_train_iterator(1)
+        print('Number of Indices: ', len(indices))
         scores = collections.defaultdict(float)
         # compare with laser label using R^2 Score, only used after model is trained
-        itr = epoch_itr.next_epoch_itr(fix_batches_to_gpus=False, shuffle=False)
+        # itr = epoch_itr.next_epoch_itr(fix_batches_to_gpus=False, shuffle=False)
         data_actor = trainer.data_actor
+        itr = epoch_itr.next_epoch_itr(
+            fix_batches_to_gpus=args.fix_batches_to_gpus,
+            shuffle=False,
+            offset=0,
+            datasize=-1,
+        )
         for i, sample in enumerate(itr):
             sample = trainer._prepare_sample(sample)
             sample = list(sample.values())[0]
@@ -95,7 +99,7 @@ def main(args, init_distributed=False):
             for k, v in zip(indices, score):
                 scores[k] = float(v[0])
 
-        scores = sorted(scores.items(), key=lambda x:x[0])
+        scores = sorted(scores.items(), key=lambda x: x[0])
         print('Number of Indices in Scoring file: ', len(scores))
         with open('en-ps.laser-score', 'r') as r:
             data = r.read()
