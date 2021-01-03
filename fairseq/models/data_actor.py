@@ -1,6 +1,8 @@
 import torch
 import copy
-import fairseq.models 
+import fairseq.models
+# from fairseq.models.lstm import lstm_wiseman_iwslt_de_en, LSTMModel
+
 
 class BaseActor(torch.nn.Module):
   def __init__(self, args, lan_size):
@@ -61,10 +63,10 @@ class LanguageActor(torch.nn.Module):
     return logits
 
 
-class AveEmbActor(torch.nn.Module):
+class AveEmbActor1(torch.nn.Module):
     """Average Embedding actor"""
     def __init__(self, args, task, emb=None, optimize_emb=True):
-        super(AveEmbActor, self).__init__()
+        super(AveEmbActor1, self).__init__()
         #assert task.source_dictionary == task.target_dictionary
         src_dictionary = task.source_dictionary
         trg_dictionary = task.target_dictionary
@@ -135,19 +137,22 @@ def Embedding(num_embeddings, embedding_dim, padding_idx=None):
         torch.nn.init.constant_(m.weight[padding_idx], 0)
     return m
 
-class LSTMActor(torch.nn.Module):
+class AveEmbActor2(torch.nn.Module):
     """LSTM based actor"""
     def __init__(self, args, task):
-        super(LSTMActor, self).__init__()
-        args = lstm_wiseman_iwslt_de_en(args)
-        self.model = LSTMModel.build_model(args, task)
-        
-        self.project_out = torch.nn.Linear(2*embed_dim, 1)
+        super(AveEmbActor2, self).__init__()
+        # adapt args to LSTM model
+        # args = lstm_wiseman_iwslt_de_en(args)
+        # self.model = LSTMModel.build_model(args, task)
+
+        self.model = fairseq.models.build_model(args, task)
+        self.project_out = torch.nn.Linear(2*args.data_actor_embed_dim, 1)
         self.out_score_type = args.out_score_type
         
-    def forward(self, src_tokens, trg_tokens):
+    def forward(self, sample):
         net_output = self.model.encoder(**sample['net_input'])
         # B x 1
+        inp = net_output[:, -1, :]
         if self.out_score_type == 'sigmoid':
             score = torch.sigmoid(self.project_out(inp))
         elif self.out_score_type == 'exp':
@@ -155,10 +160,10 @@ class LSTMActor(torch.nn.Module):
         return score 
 
 
-class TransformerActor(torch.nn.Module):
+class AveEmbActor(torch.nn.Module):
     """Transformer based actor"""
     def __init__(self, args, task):
-        super(TransformerActor, self).__init__()
+        super(AveEmbActor, self).__init__()
         args = copy.deepcopy(args)
         args.arch = 'transformer'
         args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 128)

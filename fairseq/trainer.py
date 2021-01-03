@@ -23,7 +23,7 @@ from fairseq.data import data_utils
 from fairseq.data.data_utils import batch_by_size
 from fairseq.meters import AverageMeter, StopwatchMeter, TimeMeter
 from fairseq.optim import lr_scheduler
-from fairseq.models import BaseActor, AveEmbActor, LanguageActor, TransformerActor
+from fairseq.models import BaseActor, AveEmbActor, LanguageActor
 
 class Trainer(object):
     """Main class for data parallel training.

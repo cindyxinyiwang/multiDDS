@@ -248,7 +248,7 @@ class TransformerEncoder(FairseqEncoder):
                   padding elements of shape `(batch, src_len)`
         """
         # embed tokens and positions
-        #embed_tokens = torch.nn.functional.normalize(self.embed_tokens, dim=-1) if self.args.fix_norm else self.embed_tokens
+        # embed_tokens = torch.nn.functional.normalize(self.embed_tokens, dim=-1) if self.args.fix_norm else self.embed_tokens
         x = self.embed_scale * self.embed_tokens(src_tokens)
 
         # compute padding mask

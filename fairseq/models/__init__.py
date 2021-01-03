@@ -18,7 +18,7 @@ from .fairseq_model import (
     FairseqModel,
     FairseqMultiModel,
 )
-from .data_actor import BaseActor, AveEmbActor, LanguageActor, TransformerActor
+from .data_actor import BaseActor, AveEmbActor, LanguageActor
 
 from .composite_encoder import CompositeEncoder
 from .distributed_fairseq_model import DistributedFairseqModel
