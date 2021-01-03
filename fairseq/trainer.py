@@ -638,8 +638,8 @@ class Trainer(object):
             out = out.squeeze(1)
             sample_len += len(out)
             truth = laser_score[sample['id'].data.cpu().numpy().ravel()]
-            # truth = torch.Tensor(truth).cuda()
-            truth = torch.Tensor(truth)
+            truth = torch.Tensor(truth).cuda()
+            # truth = torch.Tensor(truth)
             # Calculate MSE as the loss between model prediction and the expected label
             # print(truth, out)
             output = loss(out, truth)
