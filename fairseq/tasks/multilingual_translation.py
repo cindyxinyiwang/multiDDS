@@ -341,48 +341,15 @@ class MultilingualTranslationTask(FairseqTask):
     def train_step(self, sample, model, criterion, optimizer, ignore_grad=False, data_actor=None, loss_copy=None, data_actor_out=None):
         model.train()
         agg_loss, agg_sample_size, agg_logging_output = 0., 0., {}
-        if (self.args.data_actor_step_update) and data_actor is not None:
-            data_score, sum_score, example_size = {}, 0, 0
-            for lang_pair in self.model_lang_pairs:
-                if lang_pair not in sample or sample[lang_pair] is None or len(sample[lang_pair]) == 0:
-                    continue
-                cur_sample = sample[lang_pair]
-                score = data_actor(cur_sample)
-                data_actor_out[lang_pair] = score
-                data_score[lang_pair] = score
-                sum_score += score.sum()
-                example_size += cur_sample['nsentences']
-            # normalize scores
-            for lang_pair in self.model_lang_pairs:
-                if lang_pair not in sample or sample[lang_pair] is None or len(sample[lang_pair]) == 0:
-                    continue
-                #if self.args.out_score_type == 'exp':
-                #    data_actor_out[lang_pair] = data_actor_out[lang_pair]/sum_score
-                data_score[lang_pair] = data_score[lang_pair]*example_size/sum_score
-                #print(data_score[lang_pair])
-        else:
-            data_score = None
         #print(sample)
         for lang_pair in self.model_lang_pairs:
             if lang_pair not in sample or sample[lang_pair] is None or len(sample[lang_pair]) == 0:
                 continue
-            # If we filer data, do not scale by score
-            if data_score is not None and  self.args.select_by_dds_epoch < 0:
-                score = data_score[lang_pair]
-            else:
-                score = None
-            loss, sample_size, logging_output, nll_loss_data = criterion(model.models[lang_pair], sample[lang_pair], data_score=score, loss_copy=(loss_copy is not None))
-            if loss_copy is not None:
-                loss_copy[lang_pair] = nll_loss_data
+            loss, sample_size, logging_output, nll_loss_data = criterion(model.models[lang_pair], sample[lang_pair], data_score=None, loss_copy=(loss_copy is not None))
             if ignore_grad:
                 loss *= 0
             else:
-                if type(optimizer) == list:
-                    for optim in optimizer[:-1]:
-                        optim.backward(loss, retain_graph=True)
-                    optimizer[-1].backward(loss)
-                else:
-                    optimizer.backward(loss)
+                optimizer.backward(loss)
             agg_loss += loss.detach().item()
             # TODO make summing of the sample sizes configurable
             agg_sample_size += sample_size

@@ -562,38 +562,6 @@ class Trainer(object):
     
                 for p in data_optimizer.param_groups:
                     p['lr'] = self.args.data_actor_lr
-            elif self.args.data_actor == 'lan':
-                if self.args.pretrain_type == "lan_dist":
-                    target = torch.FloatTensor(args.lan_dists).view(-1, 1)
-                elif self.args.pretrain_type == "datasize":
-                    datasize_p = self.task.dataset('train').p
-                    target = torch.FloatTensor(datasize_p).view(-1, 1)
-                print(target)
-                feature = torch.LongTensor([i for i in range(len(datasize_p))]).view(-1, 1)
-                for p in data_optimizer.param_groups:
-                    p['lr'] = 0.001
-                if self.cuda:
-                    feature = feature.cuda()
-                    target = target.cuda()
-                l = 100
-                step = 0
-                while l > 0.000001 and step < 100000:
-                    a_logits = data_actor.forward(feature)
-                    prob = torch.nn.functional.softmax(a_logits, dim=0)
-                    loss = torch.nn.functional.mse_loss(prob, target)
-                    l = loss.item()
-                    loss.backward()
-                    data_optimizer.step()
-                    data_optimizer.zero_grad()
-                    step += 1
-                with torch.no_grad():
-                    a_logits = data_actor.forward(feature)
-                    prob = torch.nn.functional.softmax(a_logits, dim=0)
-                    sim_list = [i for i in prob.data.view(-1).cpu().numpy()]
-                    print("pretrained_sim", sim_list)
-    
-                for p in self.data_optimizer.param_groups:
-                    p['lr'] = self.args.data_actor_lr
 
     def get_train_iterator(self, epoch, combine=True):
         """Return an EpochBatchIterator over the training set for a given epoch."""
@@ -843,43 +811,6 @@ class Trainer(object):
             self.meters['loss_scale'].update(self.optimizer.scaler.loss_scale)
 
         self.meters['train_wall'].stop()
-        if self.args.data_actor_step_update and update_actor:
-            # update data actor
-            # get dev gradient
-            if self.dev_itr.end_of_epoch():
-                self.dev_itr.next_epoch_itr(shuffle=True)
-            for valid_sample in self.dev_itr._cur_epoch_itr:
-                valid_sample = self._prepare_sample(valid_sample)
-                _loss, _sample_size, _logging_output = self.task.train_step(
-                                        valid_sample, self.model, self.criterion, self.optimizer)
-                self.optimizer.save_dev_grad()
-                break
-            self.zero_grad()
-            # get per example reward
-            with torch.no_grad():
-                self.optimizer.switch_param()
-                eta = 0.001
-                self.optimizer.add_grad(eta=eta)
-                cur_loss = {}
-                _loss, _sample_size, _logging_output = self.task.train_step(
-                    sample, self.model, self.criterion, self.optimizer,
-                    ignore_grad=True, data_actor=None, loss_copy=cur_loss,
-                )
-                self.optimizer.switch_param(clear_cache=True)
-            # optimize data actor
-            for k in cached_loss.keys():
-                reward = 1./eta * (cur_loss[k] - cached_loss[k])
-                if self.args.out_score_type == 'sigmoid':
-                    #loss = -(torch.log(1e-20 + data_actor_out[k]) * reward.data)
-                    loss = -(data_actor_out[k] * reward.data)
-                elif self.args.out_score_type == 'exp':
-                    loss = -(torch.log(1e-20 + data_actor_out[k]) * reward.data)
-                if cur_loss[k].size(0) > 0:
-                    loss.div_(cur_loss[k].size(0))
-                loss.sum().backward()
-            if self.args.data_actor == 'ave_emb': 
-                self.data_optimizer.step()
-                self.data_optimizer.zero_grad()
         return logging_output
 
 
